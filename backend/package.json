@@ -1,0 +1,27 @@
+{
+  "name": "@geoalerts/backend",
+  "version": "1.0.0",
+  "description": "API REST orientada a eventos de geoAlerts (Node.js + Express + SQLite)",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test --test-reporter=spec tests/caja-blanca.test.js tests/caja-negra.test.js",
+    "test:cobertura": "node --test --experimental-test-coverage --test-reporter=spec tests/caja-blanca.test.js tests/caja-negra.test.js",
+    "backup": "node scripts/backup.js",
+    "reset-db": "node -e \"import('node:fs').then(f=>{f.rmSync('geoalerts.db',{force:true});f.rmSync('geoalerts.db-wal',{force:true});f.rmSync('geoalerts.db-shm',{force:true});return import('./db.js')})\""
+  },
+  "dependencies": {
+    "@geoalerts/compartido": "1.0.0",
+    "bcryptjs": "2.4.3",
+    "better-sqlite3": "11.5.0",
+    "cors": "2.8.5",
+    "express": "4.21.1",
+    "jsonwebtoken": "9.0.2"
+  }
+}

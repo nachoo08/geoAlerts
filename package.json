@@ -1,0 +1,35 @@
+{
+  "name": "geoalerts",
+  "version": "1.0.0",
+  "description": "Monitoreo y visualización en tiempo real de alertas meteorológicas y marítimas de Buenos Aires y su franja costera",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "compartido",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev -w @geoalerts/backend",
+    "dev:frontend": "npm run dev -w @geoalerts/frontend",
+    "build": "npm run build -w @geoalerts/frontend",
+    "start": "npm start -w @geoalerts/backend",
+    "test": "npm test -w @geoalerts/backend",
+    "test:cobertura": "npm run test:cobertura -w @geoalerts/backend",
+    "typecheck": "tsc -p tsconfig.json",
+    "backup": "npm run backup -w @geoalerts/backend"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "2.4.6",
+    "@types/better-sqlite3": "7.6.11",
+    "@types/cors": "2.8.17",
+    "@types/express": "4.17.21",
+    "@types/jsonwebtoken": "9.0.7",
+    "@types/node": "22.9.0",
+    "typescript": "5.6.3"
+  }
+}

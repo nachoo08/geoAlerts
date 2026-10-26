@@ -1,0 +1,19 @@
+{
+  // Verificación de tipos ESTRICTA de TypeScript sobre el código JavaScript
+  // (JSDoc + // @ts-check). Se ejecuta con: npm run typecheck
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["compartido/**/*.js", "backend/**/*.js"],
+  "exclude": ["**/node_modules", "frontend"]
+}

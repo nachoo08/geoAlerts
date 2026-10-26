@@ -1,0 +1,11 @@
+{
+  "name": "@geoalerts/compartido",
+  "version": "1.0.0",
+  "description": "Reglas de dominio compartidas por backend y frontend de geoAlerts",
+  "private": true,
+  "type": "module",
+  "main": "dominio.js",
+  "exports": {
+    ".": "./dominio.js"
+  }
+}

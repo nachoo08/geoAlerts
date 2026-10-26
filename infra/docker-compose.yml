@@ -1,0 +1,38 @@
+# geoAlerts — despliegue en un servidor (VPS) con HTTPS automático.
+# Uso (desde la raíz del repo):
+#   cp infra/.env.ejemplo infra/.env   # completar secretos y dominio
+#   docker compose -f infra/docker-compose.yml --env-file infra/.env up -d --build
+services:
+  geoalerts:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    image: geoalerts:${VERSION:-1.0.0}
+    restart: unless-stopped
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?Definir JWT_SECRET en infra/.env}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Definir ADMIN_PASSWORD en infra/.env}
+      CORS_ORIGIN: https://${DOMINIO}
+    volumes:
+      - datos:/data            # la base SQLite sobrevive a reinicios y redespliegues
+    expose:
+      - "3001"
+
+  caddy:                       # proxy inverso con certificado HTTPS (Let's Encrypt)
+    image: caddy:2.8
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMINIO: ${DOMINIO:?Definir DOMINIO en infra/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_datos:/data
+    depends_on:
+      - geoalerts
+
+volumes:
+  datos:
+  caddy_datos:

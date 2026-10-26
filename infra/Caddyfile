@@ -1,0 +1,12 @@
+{$DOMINIO} {
+	encode gzip
+	# flush_interval -1: entrega inmediata del flujo SSE (/api/eventos)
+	reverse_proxy geoalerts:3001 {
+		flush_interval -1
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+}

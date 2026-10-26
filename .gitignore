@@ -1,0 +1,8 @@
+node_modules/
+frontend/dist/
+backend/*.db
+backend/*.db-wal
+backend/*.db-shm
+backend/backups/
+infra/.env
+.DS_Store
