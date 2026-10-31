@@ -4,7 +4,7 @@
 
 Vientos, tormentas, sudestadas y oleaje sobre un mapa interactivo: el público consulta sin registrarse y cada organismo autorizado publica y gestiona **solo sus propias alertas**, que llegan al instante a todos los navegadores abiertos.
 
-![versión](https://img.shields.io/badge/versión-1.0.0-3fa7d6) ![pruebas](https://img.shields.io/badge/pruebas-72%2F72-2e9e5b) ![cobertura](https://img.shields.io/badge/cobertura-96%25-2e9e5b) ![node](https://img.shields.io/badge/node-%E2%89%A520-informational) ![licencia](https://img.shields.io/badge/licencia-MIT-lightgrey)
+
 
 ---
 
