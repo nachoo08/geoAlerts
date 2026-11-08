@@ -2,9 +2,7 @@
 
 **Monitoreo, registro y visualización en tiempo real de alertas meteorológicas y marítimas de Buenos Aires y su franja costera.**
 
-Vientos, tormentas, sudestadas y oleaje sobre un mapa interactivo: el público consulta sin registrarse y cada organismo autorizado publica y gestiona **solo sus propias alertas**, que llegan al instante a todos los navegadores abiertos.
-
-
+Vientos, tormentas, sudestadas y oleaje sobre un mapa interactivo: el público consulta sin registrarse y cada organismo autorizado publica y gestiona **solo sus propias alertas**, que llegan al instante a todos los navegadores abiertos. Además, el sistema incorpora un servicio autónomo de ingesta periódica desde APIs meteorológicas externas.
 
 ---
 
@@ -12,10 +10,10 @@ Vientos, tormentas, sudestadas y oleaje sobre un mapa interactivo: el público c
 
 | Etapa | Documento | Contenido |
 | --- | --- | --- |
-| 1 | [Análisis y Factibilidad](docs/01-analisis-factibilidad.md) | Problema y objetivos · alcance geográfico y microclimas · DFD Nivel 0 y 1 · relevamiento · estudio de mercado · factibilidades (FODA cruzado, técnica, económica, legal) · O.L.A. · propuesta y contrato · Gantt, Curva S y riesgos |
+| 1 | [Análisis y Factibilidad](docs/01-analisis-factibilidad.md) | Problema y objetivos · alcance geográfico y microclimas · DFD Nivel 0 y 1 · relevamiento · estudio de mercado · factividades (FODA cruzado, técnica, económica, legal) · O.L.A. · propuesta y contrato · Gantt (1.9 Planificación Estratégica 19/09/2026 - 14/11/2026), Curva S y riesgos |
 | 2 | [Diseño y Arquitectura](docs/02-diseno-arquitectura.md) | Elección tecnológica · DER, modelo relacional, diccionario y 3FN · RF-01 a RF-12 y RNF ISO/IEC 25010 · casos de uso · diagrama de clases · DSS orientado a eventos y glosario HTTP · arquitectura en 3 capas y aislamiento multiempresa · matriz de trazabilidad SQA |
-| 3 | [Implementación, Construcción y Testing](docs/03-implementacion-testing.md) | Entorno y estructura · estándares de código, tipado, transacciones y consultas parametrizadas · caja blanca, caja negra y E2E · puesta en producción |
-| 4 | [Release, Mantenimiento y Cierre](docs/04-release-mantenimiento.md) | Notas de versión v1.0.0 · UAT y compatibilidad de navegadores · plan de reversión · manuales de Usuario y Administrador · FAQ · plan de mantenimiento · glosario y trabajo futuro |
+| 3 | [Implementación, Construcción y Testing](docs/03-implementacion-testing.md) | Entorno y estructura · estándares de código, tipado, transacciones y consultas parametrizadas · ingesta automática (`node-cron`) · animaciones Leaflet (`flyTo` / `fitBounds`) · caja blanca, caja negra y E2E · puesta en producción |
+| 4 | [Release, Mantenimiento y Cierre](docs/04-release-mantenimiento.md) | Notas de versión v1.1.0 · UAT y compatibilidad de navegadores · plan de reversión · manuales de Usuario y Administrador · FAQ · plan de mantenimiento · glosario y trabajo futuro |
 
 Historial de cambios: [CHANGELOG.md](CHANGELOG.md).
 
@@ -28,25 +26,34 @@ flowchart LR
     end
     subgraph Lógica
         E["Node.js + Express<br/>API REST + eventos SSE"]
+        CRON["Ingesta Automática<br/>node-cron + Open-Meteo"]
     end
     subgraph Datos
         S[("SQLite")]
     end
     C["compartido/<br/>reglas de dominio"]
+    CRON --> E
     R -- "HTTP/JSON" --> E
     E -- "text/event-stream" --> R
     E --> S
+    CRON --> S
     R -.-> C
     E -.-> C
 ```
+
+## Novedades v1.1.0
+
+- **Ingesta Automática:** Servicio en segundo plano con `node-cron` que sincroniza periódicamente datos desde la API de Open-Meteo.
+- **Navegación Dinámica:** Centrado automático con animaciones `flyTo` al seleccionar alertas y encuadre `fitBounds` al aplicar filtros.
+- **Endpoint de Test:** `GET /api/forzar-ingesta` para pruebas y demostración manual en vivo.
 
 ## Inicio rápido
 
 Requisitos: **Node.js 20 o superior**.
 
 ```bash
-npm install            # instala backend, frontend y módulo compartido
-npm run dev:backend    # API en http://localhost:3001 (crea la base con datos de prueba)
+npm install        # instala backend, frontend y módulo compartido
+npm run dev:backend    # API en http://localhost:3001 (crea la base con datos de prueba e ingesta)
 npm run dev:frontend   # en otra terminal → http://localhost:5173
 ```
 
@@ -61,12 +68,12 @@ Los usuarios de demostración no se crean en producción.
 ### Otros comandos
 
 ```bash
-npm test               # 72 pruebas de caja blanca y caja negra
+npm test                # 72 pruebas de caja blanca y caja negra
 npm run test:cobertura # pruebas + informe de cobertura
 npm run typecheck      # verificación de tipos TypeScript (strict)
 npm run build          # compila el frontend
 npm start              # producción (tras npm run build): API + frontend en http://localhost:3001
-npm run backup         # respaldo en caliente de la base
+npm run backup          # respaldo en caliente de la base
 ```
 
 ### Producción con Docker
@@ -88,6 +95,7 @@ Detalle en la [Etapa 3, sección 3.4](docs/03-implementacion-testing.md#34-puest
 | GET | `/api/alertas/:id` | Público | 200 · 400 · 404 |
 | GET | `/api/origenes` | Público | 200 |
 | GET | `/api/eventos` | Público (SSE) | 200 `text/event-stream` |
+| GET | `/api/forzar-ingesta` | Público / Admin | 200 · 500 |
 | POST | `/api/alertas` | Token Bearer | 201 · 400 · 401 · 403 · 500 |
 | PATCH | `/api/alertas/:id/estado` | Token Bearer | 200 · 400 · 401 · 403 · 404 |
 
@@ -98,10 +106,10 @@ Glosario completo de códigos en la [Etapa 2, sección 2.4.5](docs/02-diseno-arq
 ```text
 geoAlerts/
 ├── compartido/   reglas de dominio comunes (región, validación, permisos, tipos)
-├── backend/      schema.sql · db.js · auth.js · eventos.js · server.js · tests/
-├── frontend/     React + Leaflet (App.jsx, Mapa.jsx, api.js) · e2e/
+├── backend/      schema.sql · db.js · auth.js · eventos.js · server.js · services/ingesta.js · tests/
+├── frontend/      React + Leaflet (App.jsx, Mapa.jsx, api.js) · e2e/
 ├── infra/        Dockerfile · docker-compose.yml · Caddyfile
-└── docs/         documentación de las Etapas 1 a 4
+└── docs/          documentación de las Etapas 1 a 4
 ```
 
 ## Aviso
