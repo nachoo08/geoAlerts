@@ -596,7 +596,7 @@ classDiagram
     ControladorAPI ..> BusEventos : emite eventos
     ControladorAPI ..> ServicioIngesta : dispara ingesta
     ServicioIngesta ..> RepositorioDB : inserta alertas API
-    ServicioIngesta ..> BusEventos : emite alerta:creada
+    ServicioIngesta ..> BusEventos : emite evento de alerta creada
     Auth ..> RepositorioDB : busca usuario
     RepositorioDB --> Database : conexión única
     RepositorioDB ..> Alerta : devuelve
