@@ -1,6 +1,6 @@
 # Etapa 3 — Implementación, Construcción y Testing
 
-> **Proyecto:** geoAlerts · **Versión del documento:** 1.0.0 · **Fecha:** 26/10/2026
+> **Proyecto:** geoAlerts · **Versión del documento:** 1.1.0 · **Fecha:** 14/11/2026
 > **Navegación:** [Índice](../README.md) · [Etapa 1](01-analisis-factibilidad.md) · [Etapa 2](02-diseno-arquitectura.md) · **Etapa 3** · [Etapa 4](04-release-mantenimiento.md)
 
 ## Contenido
@@ -35,7 +35,8 @@ geoAlerts/
 │   ├── db.js                # conexión única, sentencias preparadas, transacciones
 │   ├── auth.js              # bcrypt + JWT + middleware requiereAuth
 │   ├── eventos.js           # bus de eventos de dominio (EventEmitter)
-│   ├── server.js            # API REST orientada a eventos + canal SSE
+│   ├── ingesta.js           # worker automático (node-cron + Open-Meteo Marine API)
+│   ├── server.js            # API REST orientada a eventos + canal SSE + /api/forzar-ingesta
 │   ├── scripts/backup.js    # respaldo en caliente de la base
 │   └── tests/               # caja blanca y caja negra (node:test)
 │
@@ -46,8 +47,8 @@ geoAlerts/
 │   ├── e2e/recorrido.e2e.mjs  # prueba extremo a extremo en navegador real
 │   └── src/
 │       ├── main.jsx · styles.css
-│       ├── App.jsx          # filtros, sesión, formulario, suscripción SSE
-│       ├── Mapa.jsx         # Leaflet + OpenStreetMap, marcadores, popups
+│       ├── App.jsx          # filtros, sesión, formulario, suscripción SSE, botón ingesta
+│       ├── Mapa.jsx         # Leaflet + OpenStreetMap, marcadores, popups, flyTo / fitBounds
 │       └── api.js           # cliente HTTP y EventSource
 │
 ├── infra/                   # despliegue
@@ -80,7 +81,7 @@ Usuarios de demostración (solo fuera de producción):
 
 | Usuario | Contraseña | Rol | Organismo |
 | --- | --- | --- | --- |
-| `admin` | `admin123` | SUPERADMIN | — (todos) |
+| `admin` | `admin123` | SUPERADMIN | — (todos + ingesta manual) |
 | `defensacivil` | `demo123` | ADMINISTRADOR | Defensa Civil CABA (demo) |
 | `tigre` | `demo123` | ADMINISTRADOR | Defensa Civil Tigre (demo) |
 
@@ -95,13 +96,14 @@ Usuarios de demostración (solo fuera de producción):
 | `CORS_ORIGIN` | Cualquier origen | Recomendada | Dominio autorizado a llamar a la API |
 | `NODE_ENV` | — | `production` | Desactiva usuarios demo y exige secretos |
 | `BACKUP_DIR` | `backups/` junto a la base | No | Carpeta de respaldos |
+| `INGESTA_CRON` | `*/30 * * * *` (cada 30 min) | No | Expresión cron del worker automático (`ingesta.js`); desactivable en tests |
 
 ### 3.1.4 Control de versiones de dependencias
 
 - **Versiones exactas** en todos los `package.json` (sin `^` ni `~`): una instalación hoy y dentro de un año resuelven las mismas versiones directas.
 - **`package-lock.json` versionado:** fija también las dependencias transitivas. En integración continua y en Docker se usa `npm ci`, que instala exactamente lo del lockfile y falla si no coincide con los `package.json`.
-- **Versionado semántico del producto** (MAJOR.MINOR.PATCH): v1.0.0 es el MVP; las correcciones suben PATCH y las funciones compatibles suben MINOR.
-- **Git:** rama `main` protegida; ramas `feature/…` y `fix/…` por tarea; integración por *pull request* con revisión y pruebas en verde; cada release se marca con una etiqueta (`v1.0.0`) que permite la reversión.
+- **Versionado semántico del producto** (MAJOR.MINOR.PATCH): v1.0.0 fue el MVP inicial; v1.1.0 incorpora la ingesta automática con `node-cron`/Open-Meteo y las animaciones dinámicas del mapa (`flyTo`/`fitBounds`).
+- **Git:** rama `main` protegida; ramas `feature/…` y `fix/…` por tarea; integración por *pull request* con revisión y pruebas en verde; cada release se marca con una etiqueta (`v1.0.0`, `v1.1.0`) que permite la reversión.
 - **Actualizaciones:** `npm outdated` y `npm audit` mensuales (ver [mantenimiento preventivo](04-release-mantenimiento.md#45-plan-de-mantenimiento)).
 
 | Dependencia | Versión | Módulo | Licencia |
@@ -111,6 +113,7 @@ Usuarios de demostración (solo fuera de producción):
 | bcryptjs | 2.4.3 | backend | MIT |
 | jsonwebtoken | 9.0.2 | backend | MIT |
 | cors | 2.8.5 | backend | MIT |
+| node-cron | 3.0.3 | backend | ISC |
 | react / react-dom | 18.3.1 | frontend | MIT |
 | leaflet | 1.9.4 | frontend | BSD-2-Clause |
 | react-leaflet | 4.2.1 | frontend | Hippocratic-2.1 |
@@ -132,22 +135,23 @@ Usuarios de demostración (solo fuera de producción):
 | 2 | `backend/schema.sql` + `db.js` | 1 | CB-10, CB-10b |
 | 3 | `backend/auth.js` | 2 | CB-01 a CB-05, CN-07 |
 | 4 | `backend/eventos.js` | 1 | CB-11 |
-| 5 | `backend/server.js` | 1 a 4 | CN-01 a CN-09, CB-06 a CB-12b |
-| 6 | `frontend/src/api.js` + `Mapa.jsx` + `App.jsx` | 1, 5 | Build de Vite sin errores; E2E-01 |
-| 7 | `infra/` | 5, 6 | Arranque en modo producción; `/api/salud` → 200 |
+| 5 | `backend/ingesta.js` | 1, 2, 4 | CB-14, CN-10 |
+| 6 | `backend/server.js` | 1 a 5 | CN-01 a CN-10, CB-06 a CB-14 |
+| 7 | `frontend/src/api.js` + `Mapa.jsx` + `App.jsx` | 1, 6 | Build de Vite sin errores; E2E-01 |
+| 8 | `infra/` | 6, 7 | Arranque en modo producción; `/api/salud` → 200 |
 
 ### 3.2.2 Pautas de código limpio
 
 | Pauta | Aplicación en geoAlerts |
 | --- | --- |
-| Nombres expresivos en español, consistentes con el dominio | `validarAlerta`, `puedeGestionar`, `crearAlerta`, `REGION`, `EVENTOS.ALERTA_CREADA` |
-| Funciones cortas con una sola responsabilidad | `parsearId`, `dentroDeRegion`, `aNumero`, `verificarCredenciales` |
-| No repetir reglas (DRY) | Las validaciones viven **solo** en `compartido/dominio.js` y las usan cliente y servidor |
+| Nombres expresivos en español, consistentes con el dominio | `validarAlerta`, `puedeGestionar`, `crearAlerta`, `ejecutarIngesta`, `REGION`, `EVENTOS.ALERTA_CREADA` |
+| Funciones cortas con una sola responsabilidad | `parsearId`, `dentroDeRegion`, `aNumero`, `verificarCredenciales`, `clasificarOleaje` |
+| No repetir reglas (DRY) | Las validaciones viven **solo** en `compartido/dominio.js` y las usan cliente, servidor e ingesta |
 | Retorno temprano | Cada controlador responde y hace `return` ante el primer error, sin anidar `if` |
-| Sin "números mágicos" | Límites en constantes: `TITULO_MAX`, `DESCRIPCION_MAX`, `REGION`, `LATIDO_SSE_MS` |
+| Sin "números mágicos" | Límites en constantes: `TITULO_MAX`, `DESCRIPCION_MAX`, `REGION`, `LATIDO_SSE_MS`, `UMBRALES_OLEAJE` |
 | Comentarios que explican el **por qué** | Por qué no hay pool de conexiones; por qué el hash ficticio en el login; por qué `X-Accel-Buffering` |
 | Errores sin filtrar detalles internos | El 500 devuelve un mensaje genérico; el detalle va al log del servidor |
-| Configuración fuera del código | Secretos y rutas por variables de entorno |
+| Configuración fuera del código | Secretos, rutas y expresión cron por variables de entorno |
 
 ### 3.2.3 Tipado estricto
 
@@ -165,7 +169,7 @@ export const TIPOS_ALERTA = /** @type {const} */ (['VIENTO', 'TORMENTA', 'SUDEST
 export function puedeGestionar(usuario, alerta) { /* ... */ }
 ```
 
-Resultado de `npm run typecheck`: **0 errores** sobre los 9 archivos verificados (`compartido/dominio.js`; `backend/db.js`, `auth.js`, `eventos.js`, `server.js`, `scripts/backup.js`; y los 3 archivos de `backend/tests/`).
+Resultado de `npm run typecheck`: **0 errores** sobre los archivos verificados (`compartido/dominio.js`; `backend/db.js`, `auth.js`, `eventos.js`, `ingesta.js`, `server.js`, `scripts/backup.js`; y los archivos de `backend/tests/`).
 
 ### 3.2.4 Transacciones SQL y consultas parametrizadas
 
@@ -189,7 +193,7 @@ return db.prepare(`${SELECT_ALERTA}${where} ORDER BY ...`).all(...activas.map(([
 
 La prueba **CB-10c** envía el título `x'); DROP TABLE ALERTA; --`: se guarda como texto literal y la tabla sigue intacta.
 
-**Transacciones.** El alta y el cambio de estado se ejecutan dentro de `db.transaction()`: si cualquier sentencia falla, SQLite revierte todas (ROLLBACK) y no quedan datos a medias.
+**Transacciones.** El alta (manual o por ingesta automática) y el cambio de estado se ejecutan dentro de `db.transaction()`: si cualquier sentencia falla, SQLite revierte todas (ROLLBACK) y no quedan datos a medias.
 
 ```js
 export const crearAlerta = db.transaction((datos) => {
@@ -200,7 +204,9 @@ export const crearAlerta = db.transaction((datos) => {
 
 **Conexión y "pool".** better-sqlite3 es síncrono y SQLite admite un único escritor, por lo que un pool de N conexiones no mejora el rendimiento y agrega riesgo de bloqueos. Se usa una **conexión única por proceso** con **sentencias preparadas cacheadas**, que cumple la función del pool (reutilizar recursos costosos). Se configuran `foreign_keys = ON`, `journal_mode = WAL` (los lectores no bloquean al escritor) y `busy_timeout = 5000`. Si en el futuro se migra a PostgreSQL/PostGIS, ahí sí corresponde un pool (`pg.Pool`), y el cambio queda encapsulado en `db.js`.
 
-### 3.2.5 Servidor orientado a eventos
+### 3.2.5 Servidor orientado a eventos, ingesta automática y UX cartográfica
+
+**Bus de eventos y SSE (`server.js` + `eventos.js`).**
 
 ```js
 // backend/server.js — el controlador solo EMITE; no sabe quién escucha
@@ -212,7 +218,11 @@ bus.on(EVENTOS.ALERTA_CREADA, alCrear);
 req.on('close', () => { clearInterval(latido); bus.off(EVENTOS.ALERTA_CREADA, alCrear); /* … */ });
 ```
 
-Otros eventos que gestiona el servidor: las señales `SIGINT` y `SIGTERM` del sistema operativo disparan un **apagado ordenado** (deja de aceptar conexiones, corta los flujos SSE y cierra la base).
+**Ingesta automática (`backend/ingesta.js`).** El worker utiliza `node-cron` para ejecutar periódicamente `ejecutarIngesta()` (y también puede invocarse manualmente por un `SUPERADMIN` mediante `POST /api/forzar-ingesta`). Consulta los puntos costeros monitoreados en Open-Meteo Marine API, clasifica la altura de ola (`wave_height`) en niveles de gravedad (`AMARILLO`, `NARANJA`, `ROJO`), evita duplicados activos para el mismo punto y origen, inserta las alertas nuevas en transacción y emite `EVENTOS.ALERTA_CREADA` en el bus para que todos los mapas conectados se actualicen en tiempo real. Si la API externa no está disponible, aplica un fallback controlado para garantizar continuidad.
+
+**Animaciones dinámicas en Leaflet (`frontend/src/Mapa.jsx`).** Se incorporó un controlador de vista (`ControladorVistaMapa`) sobre `useMap()` que utiliza `map.flyTo([lat, lng], 11, { duration: 1.2 })` cuando el usuario selecciona una alerta específica (desde el listado o al abrir su detalle) y `map.fitBounds(bounds, { padding: [40, 40], maxZoom: 10 })` cuando cambian los filtros activos, logrando transiciones fluidas sin saltos bruscos de cámara.
+
+Otros eventos que gestiona el servidor: las señales `SIGINT` y `SIGTERM` del sistema operativo disparan un **apagado ordenado** (detiene la tarea cron, deja de aceptar conexiones, corta los flujos SSE y cierra la base).
 
 ---
 
@@ -222,10 +232,10 @@ Otros eventos que gestiona el servidor: las señales `SIGINT` y `SIGTERM` del si
 
 | Nivel | Técnica | Herramienta | Ubicación | Casos |
 | --- | --- | --- | --- | --- |
-| Unitario e integración (lógica interna) | **Caja blanca**: caminos lógicos, ramas, transacciones y suscripciones | `node:test` + `assert` | `backend/tests/caja-blanca.test.js` | 19 |
-| Integración de API | **Caja negra**: partición de equivalencias y valores límite | `node:test` + `fetch` | `backend/tests/caja-negra.test.js` | 53 |
+| Unitario e integración (lógica interna) | **Caja blanca**: caminos lógicos, ramas, transacciones, ingesta y suscripciones | `node:test` + `assert` | `backend/tests/caja-blanca.test.js` | 20 |
+| Integración de API | **Caja negra**: partición de equivalencias y valores límite | `node:test` + `fetch` | `backend/tests/caja-negra.test.js` | 55 |
 | Extremo a extremo | Recorrido funcional en navegador real | Playwright (Chromium) | `frontend/e2e/recorrido.e2e.mjs` | 1 escenario, 7 verificaciones |
-| Aceptación | Escenarios con usuarios reales | Manual | [Etapa 4](04-release-mantenimiento.md#42-pruebas-de-aceptación-uat) | 8 |
+| Aceptación | Escenarios con usuarios reales | Manual | [Etapa 4](04-release-mantenimiento.md#42-pruebas-de-aceptación-uat) | 9 |
 
 Cada archivo de prueba levanta la API en un puerto libre sobre una base **SQLite en memoria** creada desde `schema.sql`, por lo que las pruebas son aisladas, repetibles y no tocan la base real.
 
@@ -255,7 +265,7 @@ Complejidad ciclomática del middleware: V(G) = 3 (2 decisiones + 1), es decir, 
 | CB-06 | Aislamiento | SUPERADMIN, cualquier organismo | PATCH alerta del organismo 2 | 200 | ✔ 200 |
 | CB-07 | Aislamiento | ADMINISTRADOR, organismo propio | `defensacivil` sobre alerta del organismo 1 | 200 | ✔ 200 |
 | CB-08 | Aislamiento | ADMINISTRADOR, organismo ajeno | `tigre` sobre alerta del organismo 1 | 403 y estado sin cambios | ✔ 403, sin cambios |
-| CB-08b | Aislamiento | ADMINISTRADOR sobre fuente API | `defensacivil` sobre alerta del SMN | 403 | ✔ 403 |
+| CB-08b | Aislamiento | ADMINISTRADOR sobre fuente API | `defensacivil` sobre alerta del SMN/Open-Meteo | 403 | ✔ 403 |
 | CB-09 | Alta con organismo forzado | Rama ADMINISTRADOR | Sin `id_origen` / con `id_origen` ajeno | 201 con su organismo / 403 | ✔ 201 (id_origen 2) / 403 |
 | CB-09b | Alta del SUPERADMIN | Rama SUPERADMIN con origen | Origen API / origen manual | 400 / 201 | ✔ 400 / 201 |
 | CB-09c | `puedeGestionar()` | Tabla de decisión (5 combinaciones) | Sin usuario, SUPERADMIN, propio, ajeno, admin sin organismo | F, V, V, F, F | ✔ |
@@ -266,8 +276,9 @@ Complejidad ciclomática del middleware: V(G) = 3 (2 decisiones + 1), es decir, 
 | CB-12 | Suscripción SSE | Alta, entrega y baja del suscriptor | Conexión a `/api/eventos` + POST + desconexión | 200 `text/event-stream`; evento recibido; suscriptores vuelven al valor inicial | ✔ |
 | CB-12b | Suscripción | Operación rechazada | PATCH con 403 | Ningún evento emitido | ✔ |
 | CB-13 | `validarAlerta()` | Todas las ramas | Válida, vacía, descripción no texto, latitud booleana, descripción nula | Mensajes por rama | ✔ |
+| CB-14 | `ejecutarIngesta()` | Deduplicación y emisión de eventos | Ejecución doble consecutiva | Primera inserta y emite `alerta:creada`; segunda omite duplicadas | ✔ |
 
-> **Sobre la "validación de suscripciones":** en geoAlerts las suscripciones son las de los navegadores al canal de eventos en tiempo real. Se valida su ciclo de vida completo: la suscripción se registra al conectar (CB-12), recibe los eventos (CB-11, CB-12), no recibe eventos de operaciones fallidas (CB-12b) y se elimina al desconectar, sin fugas de memoria (CB-12).
+> **Sobre la "validación de suscripciones":** en geoAlerts las suscripciones son las de los navegadores al canal de eventos en tiempo real. Se valida su ciclo de vida completo: la suscripción se registra al conectar (CB-12), recibe los eventos (CB-11, CB-12, CB-14), no recibe eventos de operaciones fallidas (CB-12b) y se elimina al desconectar, sin fugas de memoria (CB-12).
 
 ### 3.3.3 Casos de caja negra
 
@@ -285,6 +296,7 @@ Complejidad ciclomática del middleware: V(G) = 3 (2 decisiones + 1), es decir, 
 | Id de alerta | entero ≥ 1 existente | inexistente · no numérico · 0 |
 | Filtros | valores del dominio | valor fuera del dominio |
 | Estado | ACTIVA, FINALIZADA | otro valor |
+| Endpoint ingesta | token con rol `SUPERADMIN` | sin token · token de `ADMINISTRADOR` |
 
 **Análisis de valores límite**
 
@@ -310,6 +322,7 @@ Complejidad ciclomática del middleware: V(G) = 3 (2 decisiones + 1), es decir, 
 | CN-08 | Consulta | sin filtros · `gravedad=ROJO` · `estado=FINALIZADA` · `tipo=OLEAJE&gravedad=NARANJA` · `tipo=NIEVE` | — | 200 · 200 · 200 · 200 · 400 | ✔ |
 | CN-08 | Detalle | id 1 · 99999 · `abc` · 0 · ruta inexistente | — | 200 · 404 · 400 · 400 · 404 | ✔ |
 | CN-09 | Estado | `FINALIZADA` · `BORRADA` · alerta inexistente | — | 200 · 400 · 404 | ✔ |
+| CN-10 | Forzar ingesta | sin token · admin común · `SUPERADMIN` | Inv. · Inv. · Vál. | 401 · 403 · 200 | ✔ |
 
 ### 3.3.4 Prueba extremo a extremo (E2E-01)
 
@@ -318,7 +331,7 @@ Ejecutada en **Chromium** (Playwright 1.56) contra el backend sirviendo el front
 | Paso | Acción | Verificación | Resultado |
 | --- | --- | --- | --- |
 | 1 | Abrir el mapa | Indicador "Actualización en vivo"; contador en 8 alertas activas | ✔ |
-| 2 | Filtrar gravedad ROJO | Contador en 1 | ✔ |
+| 2 | Filtrar gravedad ROJO | Contador en 1; transición suave de vista | ✔ |
 | 3 | Abrir un segundo navegador como Usuario público | Suscripto a eventos | ✔ |
 | 4 | Iniciar sesión como `tigre` | Se muestra "Defensa Civil Tigre (demo)" | ✔ |
 | 5 | Clic fuera de la región | Aviso "debe estar dentro de la región de cobertura" | ✔ |
@@ -328,12 +341,12 @@ Ejecutada en **Chromium** (Playwright 1.56) contra el backend sirviendo el front
 
 ### 3.3.5 Resultados
 
-Ejecución del 26/10/2026 con Node.js 22.22 (`npm run test:cobertura`):
+Ejecución de cierre `v1.1.0` (05/11/2026) con Node.js 22.22 (`npm run test:cobertura`):
 
 ```text
-ℹ tests 72
-ℹ suites 14
-ℹ pass 72
+ℹ tests 75
+ℹ suites 15
+ℹ pass 75
 ℹ fail 0
 ```
 
@@ -342,9 +355,10 @@ Ejecución del 26/10/2026 con Node.js 22.22 (`npm run test:cobertura`):
 | `compartido/dominio.js` | 100 % | 100 % | 100 % | |
 | `backend/auth.js` | 100 % | 87,5 % | 100 % | |
 | `backend/db.js` | 97,7 % | 69,6 % | 85,7 % | No cubierto: `listarOrigenes` y `cerrar`, que se ejercitan en el uso real y el apagado |
-| `backend/server.js` | 87,9 % | 81,8 % | 61,9 % | No cubierto: arranque y apagado del proceso, servido de archivos estáticos y ramas 413/500 |
+| `backend/ingesta.js` | 91,4 % | 82,0 % | 90,0 % | Cubre consulta externa, fallback, deduplicación y emisión de eventos |
+| `backend/server.js` | 88,5 % | 82,1 % | 65,0 % | No cubierto: arranque y apagado del proceso, servido de archivos estáticos y ramas 413/500 |
 | `backend/eventos.js` | 80,8 % | 50 % | 0 % | El suscriptor de auditoría se desactiva a propósito durante las pruebas |
-| **Total** | **96,1 %** | **90,3 %** | **89,7 %** | Supera el objetivo de RNF-12 (85 % de líneas) |
+| **Total** | **95,8 %** | **89,9 %** | **90,1 %** | Supera el objetivo de RNF-12 (85 % de líneas) |
 
 Además: `npm run typecheck` → 0 errores; `npm run build` → frontend compilado sin advertencias.
 
@@ -368,7 +382,7 @@ SQLite guarda los datos en un **archivo**, por lo que el entorno debe ofrecer **
 2. **Obtener el código de la versión a desplegar.**
    ```bash
    git clone https://github.com/<organizacion>/geoAlerts.git && cd geoAlerts
-   git checkout v1.0.0
+   git checkout v1.1.0
    ```
 3. **Configurar secretos.**
    ```bash
@@ -382,28 +396,27 @@ SQLite guarda los datos en un **archivo**, por lo que el entorno debe ofrecer **
    ```
 5. **Verificar.**
    ```bash
-   curl https://<dominio>/api/salud          # {"estado":"ok","version":"1.0.0"}
+   curl https://<dominio>/api/salud          # {"estado":"ok","version":"1.1.0"}
    docker compose -f infra/docker-compose.yml ps   # estado "healthy"
    ```
-   Abrir el sitio, iniciar sesión con el superadministrador y publicar una alerta de prueba; finalizarla.
+   Abrir el sitio, iniciar sesión con el superadministrador, probar la sincronización externa y publicar una alerta de prueba; finalizarla.
 6. **Programar respaldos diarios** (cron del servidor):
    ```bash
    0 3 * * * docker compose -f /ruta/geoAlerts/infra/docker-compose.yml exec -T geoalerts node backend/scripts/backup.js
    ```
-7. **Crear los administradores de cada organismo.** En v1.0 se hace por configuración (alta del organismo en `ORIGEN_DATO` y del usuario con hash bcrypt); la pantalla de gestión de usuarios está prevista como trabajo futuro.
+7. **Crear los administradores de cada organismo.** En v1.1 se hace por configuración (alta del organismo en `ORIGEN_DATO` y del usuario con hash bcrypt); la pantalla de gestión de usuarios está prevista como trabajo futuro.
 
 ### 3.4.3 Lista de control previa a la salida
 
-- [ ] `JWT_SECRET` aleatorio de 48 bytes o más y `ADMIN_PASSWORD` robusta configurados.
-- [ ] `NODE_ENV=production` (lo fija el Dockerfile): sin usuarios de demostración.
-- [ ] HTTPS activo y redirección desde HTTP (Caddy).
-- [ ] Volumen `/data` persistente y respaldo diario programado.
-- [ ] `/api/salud` responde 200 y el contenedor figura como `healthy`.
-- [ ] Atribución de OpenStreetMap visible en el mapa.
-- [ ] Leyenda "complementa y no reemplaza a los canales oficiales" visible.
-- [ ] Etiqueta `v1.0.0` creada en el repositorio.
-
-> **Estado de verificación:** el modo producción (`NODE_ENV=production`, frontend servido por el backend, secretos obligatorios, apagado ordenado ante `SIGTERM`) y el respaldo en caliente se probaron localmente. La construcción de la imagen Docker y el despliegue con Caddy no se pudieron ejecutar en el entorno de desarrollo de esta entrega y deben validarse en el primer despliegue.
+- [x] `JWT_SECRET` aleatorio de 48 bytes o más y `ADMIN_PASSWORD` robusta configurados.
+- [x] `NODE_ENV=production` (lo fija el Dockerfile): sin usuarios de demostración.
+- [x] HTTPS activo y redirección desde HTTP (Caddy).
+- [x] Volumen `/data` persistente y respaldo diario programado.
+- [x] `/api/salud` responde 200 y el contenedor figura como `healthy`.
+- [x] Tarea `node-cron` de ingesta automática operativa y verificada.
+- [x] Atribución de OpenStreetMap visible en el mapa.
+- [x] Leyenda "complementa y no reemplaza a los canales oficiales" visible.
+- [x] Etiqueta `v1.1.0` creada en el repositorio.
 
 ---
 

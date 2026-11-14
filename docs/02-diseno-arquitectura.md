@@ -1,6 +1,6 @@
 # Etapa 2 — Diseño y Arquitectura
 
-> **Proyecto:** geoAlerts · **Versión del documento:** 1.0.0 · **Fecha:** 26/10/2026
+> **Proyecto:** geoAlerts · **Versión del documento:** 1.1.0 · **Fecha:** 14/11/2026
 > **Navegación:** [Índice](../README.md) · [Etapa 1](01-analisis-factibilidad.md) · **Etapa 2** · [Etapa 3](03-implementacion-testing.md) · [Etapa 4](04-release-mantenimiento.md)
 
 ## Contenido
@@ -21,11 +21,12 @@
 | Lenguaje | **JavaScript ES2022 con TypeScript** (verificación de tipos) | TS 5.6 | Todo el código | Un solo lenguaje en todas las capas. El backend y el módulo compartido se escriben en JavaScript con anotaciones JSDoc y `// @ts-check`, y el compilador de TypeScript los verifica en modo `strict` (`npm run typecheck`). Se obtiene tipado estático sin paso de compilación en el servidor |
 | Entorno de ejecución | **Node.js** | 20 o superior | Servidor | Bucle de eventos asíncrono, ideal para muchas conexiones abiertas de SSE |
 | Framework backend | **Express** | 4.21 | API REST | Ruteo y cadena de middleware mínimos y conocidos |
-| Base de datos (v1.0) | **SQLite 3** mediante better-sqlite3 | 11.5 | Persistencia | Un archivo, sin servidor; transacciones ACID; restricciones `CHECK` y claves foráneas |
-| Base de datos (evolución) | **PostgreSQL + PostGIS** | — | Previsto para v2 | Consultas espaciales con polígonos (zonas afectadas, contorno real de la provincia). **No se usa en v1.0**: el MVP solo necesita puntos y un rectángulo, que SQLite resuelve con dos columnas `REAL` y un índice compuesto. El acceso a datos está aislado en `db.js` para que la migración no afecte a las otras capas |
+| Planificador de tareas | **node-cron** | 3.0 | Ingesta automática (`ingesta.js`) | Ejecuta periódicamente la consulta a APIs externas (Open-Meteo Marine API) dentro del mismo proceso Node.js |
+| Base de datos (v1.1) | **SQLite 3** mediante better-sqlite3 | 11.5 | Persistencia | Un archivo, sin servidor; transacciones ACID; restricciones `CHECK` y claves foráneas |
+| Base de datos (evolución) | **PostgreSQL + PostGIS** | — | Previsto para v2 | Consultas espaciales con polígonos (zonas afectadas, contorno real de la provincia). **No se usa en v1.1**: el sistema solo necesita puntos y un rectángulo, que SQLite resuelve con dos columnas `REAL` y un índice compuesto. El acceso a datos está aislado en `db.js` para que la migración no afecte a las otras capas |
 | Framework frontend | **React** | 18.3 | Interfaz | Componentes y estado declarativo |
 | Empaquetador | **Vite** | 5.4 | Desarrollo y build | Recarga instantánea; build de producción optimizado; proxy de `/api` en desarrollo |
-| Motor cartográfico | **Leaflet + OpenStreetMap** | Leaflet 1.9 · react-leaflet 4.2 | Mapa | Trabajan juntos: **Leaflet** es la librería que dibuja el mapa en el navegador (zoom, arrastre, marcadores, popups) y **OpenStreetMap** es el proveedor de la capa base, las teselas (imágenes de 256×256 px) que Leaflet coloca como fondo. Ambos son libres y no requieren clave de API |
+| Motor cartográfico | **Leaflet + OpenStreetMap** | Leaflet 1.9 · react-leaflet 4.2 | Mapa | Trabajan juntos: **Leaflet** es la librería que dibuja el mapa en el navegador (zoom dinámico `flyTo`/`fitBounds`, arrastre, marcadores, popups) y **OpenStreetMap** es el proveedor de la capa base, las teselas (imágenes de 256×256 px) que Leaflet coloca como fondo. Ambos son libres y no requieren clave de API |
 | Tiempo real | **Server-Sent Events** | Estándar HTML | Difusión de eventos | Canal unidireccional servidor → navegador, nativo (`EventSource`), con reconexión automática |
 | Seguridad | bcryptjs · jsonwebtoken · cors | 2.4 · 9.0 · 2.8 | Autenticación y autorización | Hash de contraseñas, tokens firmados, control de orígenes |
 | Pruebas | `node:test` (nativo) · Playwright | Node 22 · 1.56 | Caja blanca, caja negra, E2E | Sin dependencias extra para las pruebas unitarias y de API; navegador real para la E2E |
@@ -75,10 +76,10 @@ erDiagram
 
 | Relación | Cardinalidad | Participación | Significado |
 | --- | --- | --- | --- |
-| ORIGEN_DATO — ALERTA | 1 : N | Obligatoria del lado de ALERTA | Toda alerta proviene de exactamente una fuente; una fuente puede tener muchas alertas |
+| ORIGEN_DATO — ALERTA | 1 : N | Obligatoria del lado de ALERTA | Toda alerta proviene de exactamente una fuente (`API_EXTERNA` o `CARGA_MANUAL`); una fuente puede tener muchas alertas |
 | ORIGEN_DATO — USUARIO | 1 : N | Opcional del lado de USUARIO | Cada ADMINISTRADOR pertenece a un organismo (fuente `CARGA_MANUAL`); el SUPERADMIN no pertenece a ninguno |
 
-La entidad **ORIGEN_DATO cumple un doble rol**: identifica la fuente de una alerta y, cuando es de tipo `CARGA_MANUAL`, representa al **organismo** que la publicó. Esa es la unidad de **aislamiento multiempresa** ([sección 2.5.2](#252-aislamiento-multiempresa-por-organismo)).
+La entidad **ORIGEN_DATO cumple un doble rol**: identifica la fuente de una alerta (ya sea automática como Open-Meteo o manual de un organismo) y, cuando es de tipo `CARGA_MANUAL`, representa al **organismo** que la publicó. Esa es la unidad de **aislamiento multiempresa** ([sección 2.5.2](#252-aislamiento-multiempresa-por-organismo)).
 
 ### 2.2.2 Normalización hasta 3FN
 
@@ -173,18 +174,19 @@ Integridad referencial: ON UPDATE CASCADE · ON DELETE RESTRICT (no se puede bor
 
 | Id | Requerimiento | Prioridad | Especificación técnica | Criterio de aceptación |
 | --- | --- | --- | --- | --- |
-| RF-01 | Mostrar el mapa de la región con las alertas | Alta | `GET /api/alertas`; Leaflet + OSM encuadrado en la región; un `CircleMarker` por alerta con color y radio según la gravedad | Se ven todas las alertas activas; el mapa abre encuadrado en Buenos Aires |
+| RF-01 | Mostrar el mapa de la región con las alertas | Alta | `GET /api/alertas`; Leaflet + OSM encuadrado en la región con transición `flyTo`/`fitBounds`; un `CircleMarker` por alerta con color y radio según la gravedad | Se ven todas las alertas activas; el mapa abre encuadrado en Buenos Aires y enfoca suavemente al seleccionar |
 | RF-02 | Filtrar por tipo de fenómeno | Alta | Parámetro `tipo` validado contra el dominio; 400 si es inválido | Solo se muestran alertas del tipo elegido |
 | RF-03 | Filtrar por nivel de gravedad | Alta | Parámetro `gravedad`; 400 si es inválido | Solo se muestran alertas del nivel elegido |
 | RF-04 | Filtrar por estado y consultar el historial | Media | Parámetro `estado` (`ACTIVA`, `FINALIZADA` u omitido para todas) | Las finalizadas se ven punteadas y solo con el filtro correspondiente |
-| RF-05 | Ver el detalle de una alerta | Alta | Popup con título, tipo, gravedad, descripción, organismo de origen, fecha de emisión y de actualización; `GET /api/alertas/:id` (200/400/404) | El detalle muestra el organismo de origen |
-| RF-06 | Actualizar el mapa en tiempo real | Alta | `GET /api/eventos` (SSE); eventos `alerta:creada` y `alerta:actualizada`; refresco de respaldo cada 60 s | Una alerta nueva aparece en otro navegador sin recargar |
+| RF-05 | Ver el detalle de una alerta | Alta | Popup con título, tipo, gravedad, descripción, organismo de origen, fecha de emisión y de actualización; `GET /api/alertas/:id` (200/400/404) | El detalle muestra el organismo de origen y centra el mapa en el punto (`flyTo`) |
+| RF-06 | Actualizar el mapa en tiempo real | Alta | `GET /api/eventos` (SSE); eventos `alerta:creada` y `alerta:actualizada`; refresco de respaldo cada 60 s | Una alerta nueva (manual o automática) aparece en otro navegador sin recargar |
 | RF-07 | Iniciar sesión como Administrador | Alta | `POST /api/login`; bcrypt; JWT HS256 de 8 h; 400/401 | Credenciales válidas habilitan el formulario de alta |
 | RF-08 | Cerrar sesión | Media | Se descarta el token del `sessionStorage`; un 401 posterior cierra la sesión automáticamente | Tras "Salir" no se puede publicar |
 | RF-09 | Cargar una alerta manual con ubicación tomada del mapa | Alta | `POST /api/alertas` con token; validación compartida; inserción en transacción; 201 + cabecera `Location` | La alerta queda `ACTIVA` y asociada al organismo del Administrador |
 | RF-10 | Validar que la ubicación pertenezca a la región | Alta | Validación en cliente, API (400) y base (`CHECK`) | Una alerta en Misiones es rechazada |
 | RF-11 | Cambiar el estado de una alerta | Media | `PATCH /api/alertas/:id/estado`; 200/400/401/403/404 | La alerta pasa a `FINALIZADA` y se registra `fecha_actualizacion` |
 | RF-12 | Aislar la gestión por organismo | Alta | `puedeGestionar()` en la capa de lógica y filtro `id_origen` en el `UPDATE`; 403 | Un organismo no puede modificar ni publicar a nombre de otro |
+| RF-13 | Ingerir alertas automáticas desde fuentes externas | Alta | Worker `ingesta.js` ejecutado cada 30 min vía `node-cron` + endpoint `POST /api/forzar-ingesta` protegido para `SUPERADMIN` | Consulta Open-Meteo Marine API, evita duplicados activos, inserta bajo `ORIGEN_DATO` (`API_EXTERNA`) y emite `alerta:creada` |
 
 ### 2.3.2 Requerimientos no funcionales (ISO/IEC 25010)
 
@@ -194,9 +196,9 @@ Integridad referencial: ON UPDATE CASCADE · ON DELETE RESTRICT (no se puede bor
 | RNF-02 | Eficiencia de desempeño | Comportamiento temporal | El listado responde en menos de 1 s con hasta 10.000 alertas | Índices por tipo, gravedad, estado y coordenadas |
 | RNF-03 | Eficiencia de desempeño | Comportamiento temporal | Un evento llega a los navegadores conectados en menos de 2 s | SSE sin sondeo; prueba CB-12 y E2E-01 |
 | RNF-04 | Compatibilidad | Interoperabilidad | API REST con JSON y códigos HTTP estándar | Glosario de códigos (sección 2.4.5) |
-| RNF-05 | Usabilidad | Facilidad de aprendizaje | Un Usuario entiende el mapa sin instrucciones | Escala de colores oficial; UAT-01 |
+| RNF-05 | Usabilidad | Facilidad de aprendizaje | Un Usuario entiende el mapa sin instrucciones | Escala de colores oficial; transiciones suaves `flyTo`/`fitBounds`; UAT-01 |
 | RNF-06 | Usabilidad | Accesibilidad | Controles con etiqueta accesible; diseño adaptable a teléfonos | `aria-label` en los campos; vista apilada en pantallas de menos de 720 px |
-| RNF-07 | Fiabilidad | Tolerancia a fallos | Si el canal SSE se corta, el cliente se reconecta solo y mantiene un refresco de respaldo | `retry: 5000` y refresco cada 60 s |
+| RNF-07 | Fiabilidad | Tolerancia a fallos | Si el canal SSE se corta, el cliente se reconecta solo y mantiene un refresco de respaldo; si falla la API externa, la ingesta usa respaldo | `retry: 5000`, refresco cada 60 s y fallback en `ingesta.js` |
 | RNF-08 | Fiabilidad | Recuperabilidad | Respaldo en caliente de la base y reversión en menos de 15 minutos | `npm run backup`; plan de reversión (Etapa 4) |
 | RNF-09 | Seguridad | Confidencialidad | Contraseñas con hash bcrypt; el hash nunca sale de la API | Prueba CN-07 |
 | RNF-10 | Seguridad | Integridad | Sin inyección SQL; datos validados en tres capas | Consultas parametrizadas; prueba CB-10c |
@@ -215,7 +217,8 @@ Actores:
 
 - **Usuario:** cualquier persona que accede al sitio público, sin autenticarse.
 - **Administrador:** persona autenticada que pertenece a un **organismo**. Hereda todos los casos de uso del Usuario.
-- **Superadministrador:** especialización del Administrador sin organismo fijo; puede gestionar alertas de cualquier organismo.
+- **Superadministrador:** especialización del Administrador sin organismo fijo; puede gestionar alertas de cualquier organismo y disparar manualmente la ingesta externa.
+- **Planificador Cron (Sistema):** actor temporal que ejecuta periódicamente la sincronización con APIs externas.
 
 ```mermaid
 flowchart LR
@@ -228,29 +231,34 @@ flowchart LR
         CU04(["CU-04 Recibir actualizaciones<br/>en tiempo real"])
     end
 
-    subgraph ADM["Sistema geoAlerts — acceso autenticado"]
+    subgraph ADM["Sistema geoAlerts — acceso autenticado y sistema"]
         CU05(["CU-05 Iniciar sesión"])
         CU06(["CU-06 Cerrar sesión"])
         CU07(["CU-07 Cargar alerta manual"])
         CU08(["CU-08 Gestionar estado de alerta"])
+        CU09(["CU-09 Sincronizar alertas externas<br/>(Cron / Forzar ingesta)"])
     end
 
     A(["👤 Administrador"])
     SA(["👤 Superadministrador"])
+    CRON(["⏱️ Planificador Cron"])
 
     U --- CU01 & CU02 & CU03 & CU04
     CU05 & CU06 & CU07 & CU08 --- A
     A -- "generaliza (hereda los CU de Usuario)" --> U
     SA -- "generaliza" --> A
+    SA --- CU09
+    CRON --- CU09
 
     CU02 -. "«extend»" .-> CU01
     CU03 -. "«extend»" .-> CU01
     CU04 -. "«include»" .-> CU01
     CU07 -. "«include»" .-> CU05
     CU08 -. "«include»" .-> CU05
+    CU09 -. "«include»" .-> CU05
 ```
 
-> El Administrador también participa en CU-01 a CU-04 por **generalización**: hereda todos los casos de uso del Usuario. El Superadministrador hereda los del Administrador y no tiene la restricción de organismo en CU-07 y CU-08.
+> El Administrador también participa en CU-01 a CU-04 por **generalización**: hereda todos los casos de uso del Usuario. El Superadministrador hereda los del Administrador, no tiene la restricción de organismo en CU-07 y CU-08, y puede ejecutar manualmente CU-09.
 
 | CU | Nombre | Actor principal | Prioridad | Requerimientos |
 | --- | --- | --- | --- | --- |
@@ -262,6 +270,7 @@ flowchart LR
 | CU-06 | Cerrar sesión | Administrador | Media | RF-08 |
 | CU-07 | Cargar alerta manual | Administrador | Alta | RF-09, RF-10, RF-12 |
 | CU-08 | Gestionar estado de alerta | Administrador | Media | RF-11, RF-12 |
+| CU-09 | Sincronizar alertas externas | Planificador Cron / Superadministrador | Alta | RF-13 |
 
 ### 2.4.2 Especificación de casos de uso
 
@@ -279,7 +288,7 @@ En cada caso, (+) indica un paso del flujo principal exitoso y (−) una excepci
 **Flujo principal**
 
 1. (+) El Usuario ingresa a la URL de geoAlerts.
-2. (+) El sistema dibuja el mapa encuadrado en la región, con la capa base de OpenStreetMap y el contorno de cobertura.
+2. (+) El sistema dibuja el mapa encuadrado en la región (`fitBounds`), con la capa base de OpenStreetMap y el contorno de cobertura.
 3. (+) El sistema solicita `GET /api/alertas?estado=ACTIVA` y recibe **200 OK**.
 4. (+) El sistema dibuja un círculo por alerta, coloreado y dimensionado según la gravedad, y actualiza el contador.
 5. (+) El sistema abre la suscripción a `GET /api/eventos` (incluye CU-04) y muestra "Actualización en vivo".
@@ -297,18 +306,18 @@ En cada caso, (+) indica un paso del flujo principal exitoso y (−) una excepci
 | Actor | Usuario |
 | Propósito | Ver solo las alertas de interés o el historial |
 | Precondición | CU-01 en ejecución |
-| Postcondición | El mapa muestra solo las alertas que cumplen todos los filtros |
+| Postcondición | El mapa muestra solo las alertas que cumplen todos los filtros y ajusta suavemente el encuadre |
 
 **Flujo principal**
 
 1. (+) El Usuario elige tipo, gravedad o estado (Activas, Finalizadas, Todas).
 2. (+) El evento `change` del desplegable dispara `GET /api/alertas?tipo=…&gravedad=…&estado=…`.
 3. (+) El sistema valida los parámetros y responde **200 OK**.
-4. (+) El mapa y el contador se redibujan.
+4. (+) El mapa y el contador se redibujan, reencuadrando (`fitBounds`) sobre las alertas resultantes.
 
 **Excepciones**
 
-- (−) E1, en el paso 4: ninguna alerta cumple el filtro. El contador indica 0.
+- (−) E1, en el paso 4: ninguna alerta cumple el filtro. El contador indica 0 y el mapa vuelve a la vista general de la región.
 - (−) E2, en el paso 3: un parámetro tiene un valor fuera del dominio (URL manipulada). El sistema responde **400 Bad Request** con el detalle.
 
 #### CU-03 — Consultar detalle
@@ -318,12 +327,12 @@ En cada caso, (+) indica un paso del flujo principal exitoso y (−) una excepci
 | Actor | Usuario |
 | Propósito | Conocer la descripción, el origen y las fechas de una alerta |
 | Precondición | La alerta está visible en el mapa |
-| Postcondición | Se muestra el popup de detalle |
+| Postcondición | Se centra el mapa en el evento (`flyTo`) y se muestra el popup de detalle |
 
 **Flujo principal**
 
-1. (+) El Usuario hace clic sobre un marcador.
-2. (+) El sistema abre un popup con título, gravedad, tipo, estado, descripción, organismo de origen, fecha de emisión y, si existe, fecha de actualización, en hora de Buenos Aires.
+1. (+) El Usuario hace clic sobre un marcador (o la selecciona desde la lista).
+2. (+) El mapa realiza un desplazamiento suave (`flyTo`) hacia las coordenadas del marcador y abre un popup con título, gravedad, tipo, estado, descripción, organismo de origen, fecha de emisión y, si existe, fecha de actualización, en hora de Buenos Aires.
 
 **Excepciones**
 
@@ -335,13 +344,13 @@ En cada caso, (+) indica un paso del flujo principal exitoso y (−) una excepci
 | Campo | Detalle |
 | --- | --- |
 | Actor | Usuario |
-| Propósito | Ver altas y cambios sin recargar la página |
+| Propósito | Ver altas (manuales o automáticas) y cambios sin recargar la página |
 | Precondición | CU-01 abrió la suscripción `EventSource` |
 | Postcondición | El mapa refleja el cambio |
 
 **Flujo principal**
 
-1. (+) Un Administrador publica o modifica una alerta (CU-07 o CU-08).
+1. (+) Un Administrador o el worker de ingesta publica o modifica una alerta (CU-07, CU-08 o CU-09).
 2. (+) El servidor emite el evento de dominio en el bus y lo reenvía por SSE a todos los suscriptos.
 3. (+) El navegador recibe `alerta:creada` o `alerta:actualizada` y vuelve a consultar el listado con los filtros vigentes.
 
@@ -365,7 +374,7 @@ En cada caso, (+) indica un paso del flujo principal exitoso y (−) una excepci
 2. (+) El evento `submit` envía `POST /api/login`.
 3. (+) El servidor busca el usuario y compara la contraseña con `password_hash` mediante bcrypt.
 4. (+) El servidor firma un token con id, usuario, rol y organismo y responde **200 OK** (sin el hash).
-5. (+) El cliente guarda la sesión y habilita las funciones de Administrador.
+5. (+) El cliente guarda la sesión y habilita las funciones de Administrador (y el botón de ingesta si es `SUPERADMIN`).
 
 **Excepciones**
 
@@ -439,8 +448,31 @@ En cada caso, (+) indica un paso del flujo principal exitoso y (−) una excepci
 
 - (−) E1, en el paso 4: estado fuera del dominio o id inválido. **400 Bad Request**.
 - (−) E2, en el paso 4: la alerta no existe. **404 Not Found**.
-- (−) E3, en el paso 4: la alerta es de otro organismo o de una API externa. **403 Forbidden**; no se modifica nada ni se emiten eventos.
+- (−) E3, en el paso 4: la alerta es de otro organismo o de una API externa (si el actor no es Superadministrador). **403 Forbidden**; no se modifica nada ni se emiten eventos.
 - (−) E4, en el paso 4: token vencido. **401 Unauthorized**.
+
+#### CU-09 — Sincronizar alertas externas
+
+| Campo | Detalle |
+| --- | --- |
+| Actor | Planificador Cron (automático cada 30 min) o Superadministrador (`POST /api/forzar-ingesta`) |
+| Propósito | Obtener condiciones marítimas reales de Open-Meteo Marine API y generar alertas automáticas cuando superen umbrales de oleaje |
+| Precondición | El servidor está en ejecución; si es manual, el Superadministrador inició sesión (CU-05) |
+| Postcondición | Se crean las alertas nuevas bajo `ORIGEN_DATO` (`Open-Meteo Marine`) y se difunden vía SSE |
+
+**Flujo principal**
+
+1. (+) El temporizador `node-cron` dispara `ejecutarIngesta()` (o el Superadministrador presiona "Sincronizar fuentes externas" llamando a `POST /api/forzar-ingesta`).
+2. (+) El módulo `ingesta.js` consulta Open-Meteo Marine API para los puntos costeros monitoreados de Buenos Aires.
+3. (+) Evalúa la altura máxima de ola (`wave_height`) contra los umbrales de gravedad (`AMARILLO` ≥ 2,0 m, `NARANJA` ≥ 3,0 m, `ROJO` ≥ 4,0 m).
+4. (+) Verifica que no exista ya una alerta `ACTIVA` duplicada para esa ubicación y fuente.
+5. (+) Inserta las alertas nuevas en `ALERTA` y emite `alerta:creada` en el bus de eventos.
+6. (+) En ejecución manual, responde **200 OK** con el resumen (`creadas`, `omitidas`, `fuente`).
+
+**Excepciones**
+
+- (−) E1, en el paso 1 (manual): usuario sin rol `SUPERADMIN`. **403 Forbidden**.
+- (−) E2, en el paso 2: Open-Meteo no responde o devuelve error de red. `ingesta.js` registra el aviso y aplica un conjunto de respaldo realista para mantener la continuidad operativa.
 
 ### 2.4.3 Diagrama de clases (dominio y persistencia)
 
@@ -521,6 +553,7 @@ classDiagram
         +buscarUsuario(username) Usuario
         +listarOrigenes() OrigenDato[]
         +obtenerOrigen(id) OrigenDato
+        +obtenerOCrearOrigenExterno(nombre) OrigenDato
         +cerrar() void
     }
     class Auth {
@@ -536,6 +569,12 @@ classDiagram
         +on(evento, suscriptor) void
         +off(evento, suscriptor) void
     }
+    class ServicioIngesta {
+        <<módulo lógica · ingesta.js>>
+        +PUNTOS_COSTEROS
+        +ejecutarIngesta() Promise~ResultadoIngesta~
+        +iniciarCronIngesta() ScheduledTask
+    }
     class ControladorAPI {
         <<módulo lógica · server.js>>
         +crearApp() Express
@@ -544,6 +583,7 @@ classDiagram
         +GET_eventos()
         +POST_login()
         +POST_alertas()
+        +POST_forzar_ingesta()
         +PATCH_estado()
     }
     class Database {
@@ -564,6 +604,9 @@ classDiagram
     ControladorAPI ..> Auth : protege rutas
     ControladorAPI ..> RepositorioDB : persiste
     ControladorAPI ..> BusEventos : emite eventos
+    ControladorAPI ..> ServicioIngesta : dispara ingesta
+    ServicioIngesta ..> RepositorioDB : inserta alertas API
+    ServicioIngesta ..> BusEventos : emite alerta:creada
     Auth ..> RepositorioDB : busca usuario
     RepositorioDB --> Database : conexión única
     RepositorioDB ..> Alerta : devuelve
@@ -576,6 +619,7 @@ classDiagram
 | RepositorioDB | Persistencia | Consultas parametrizadas, transacciones, conexión única | `backend/db.js` |
 | Auth | Lógica | bcrypt, emisión y verificación de JWT | `backend/auth.js` |
 | BusEventos | Lógica | Publicación y suscripción de eventos de dominio | `backend/eventos.js` |
+| ServicioIngesta | Lógica | Consulta periódica a Open-Meteo Marine API (`node-cron`), deduplicación y emisión de alertas | `backend/ingesta.js` |
 | ControladorAPI | Lógica | Rutas REST, códigos HTTP, canal SSE | `backend/server.js` |
 
 ### 2.4.4 Diagrama de secuencia (DSS) orientado a eventos — "Cargar alerta manual"
@@ -585,8 +629,8 @@ En la **Programación Orientada a Eventos** el flujo no lo dirige una secuencia 
 | Nivel | Evento | Productor | Manejador (suscriptor) |
 | --- | --- | --- | --- |
 | Interfaz | `click` en el mapa, `submit` del formulario | Navegador del Administrador | `seleccionarPunto()`, `guardarAlerta()` en `App.jsx` |
-| Red | `request` HTTP | Node.js | Cadena de Express: `express.json` → `requiereAuth` → controlador |
-| Dominio | `alerta:creada` | Controlador `POST /api/alertas` | Canal SSE de cada navegador conectado y auditoría en el log |
+| Red / Temporizador | `request` HTTP / tick `node-cron` | Node.js / `node-cron` | Cadena de Express (`requiereAuth` → controlador) / `ejecutarIngesta()` |
+| Dominio | `alerta:creada` | Controlador `POST /api/alertas` o `ingesta.js` | Canal SSE de cada navegador conectado y auditoría en el log |
 
 ```mermaid
 sequenceDiagram
@@ -650,14 +694,14 @@ sequenceDiagram
 
 | Código | Nombre | Significado en geoAlerts | Endpoints que lo devuelven |
 | --- | --- | --- | --- |
-| **200** | OK | Consulta o modificación exitosa; en `/api/eventos` abre el flujo SSE | `GET /api/salud`, `POST /api/login`, `GET /api/alertas`, `GET /api/alertas/:id`, `GET /api/origenes`, `GET /api/eventos`, `PATCH /api/alertas/:id/estado` |
+| **200** | OK | Consulta o modificación exitosa; en `/api/eventos` abre el flujo SSE | `GET /api/salud`, `POST /api/login`, `GET /api/alertas`, `GET /api/alertas/:id`, `GET /api/origenes`, `GET /api/eventos`, `PATCH /api/alertas/:id/estado`, `POST /api/forzar-ingesta` |
 | **201** | Created | Alerta creada; incluye la cabecera `Location` con su URL | `POST /api/alertas` |
 | **400** | Bad Request | Datos o parámetros inválidos: campos vacíos, valores fuera de dominio, coordenadas fuera de la región, id no numérico, JSON malformado | `POST /api/login`, `GET /api/alertas`, `GET /api/alertas/:id`, `POST /api/alertas`, `PATCH /api/alertas/:id/estado` |
-| **401** | Unauthorized | Credenciales incorrectas, o token ausente, inválido o vencido | `POST /api/login`, `POST /api/alertas`, `PATCH /api/alertas/:id/estado` |
-| **403** | Forbidden | Autenticado pero sin permiso: la alerta u organismo pertenece a otro | `POST /api/alertas`, `PATCH /api/alertas/:id/estado` |
+| **401** | Unauthorized | Credenciales incorrectas, o token ausente, inválido o vencido | `POST /api/login`, `POST /api/alertas`, `PATCH /api/alertas/:id/estado`, `POST /api/forzar-ingesta` |
+| **403** | Forbidden | Autenticado pero sin permiso: la alerta u organismo pertenece a otro, o no es `SUPERADMIN` para forzar ingesta | `POST /api/alertas`, `PATCH /api/alertas/:id/estado`, `POST /api/forzar-ingesta` |
 | **404** | Not Found | Alerta o ruta inexistente | `GET /api/alertas/:id`, `PATCH /api/alertas/:id/estado`, cualquier ruta `/api` desconocida |
 | **413** | Payload Too Large | Cuerpo de la petición mayor a 20 KB | Todas las rutas con cuerpo |
-| **500** | Internal Server Error | Error no controlado; la transacción se revierte y no se exponen detalles internos | `POST /api/alertas` y manejador global |
+| **500** | Internal Server Error | Error no controlado; la transacción se revierte y no se exponen detalles internos | `POST /api/alertas`, `POST /api/forzar-ingesta` y manejador global |
 
 Todas las respuestas de error tienen el formato `{ "error": "mensaje", "detalles": ["…"] }` (`detalles` solo en errores de validación).
 
@@ -671,17 +715,18 @@ Todas las respuestas de error tienen el formato `{ "error": "mensaje", "detalles
 flowchart TB
     subgraph P["Capa de Presentación · navegador (React + Vite)"]
         direction LR
-        P1["App.jsx<br/>filtros, sesión, formulario"]
-        P2["Mapa.jsx<br/>Leaflet + teselas OSM"]
+        P1["App.jsx<br/>filtros, sesión, formulario, botón ingesta"]
+        P2["Mapa.jsx<br/>Leaflet (flyTo / fitBounds) + teselas OSM"]
         P3["api.js<br/>fetch + EventSource"]
     end
     subgraph C["Módulo compartido"]
         C1["dominio.js<br/>región, dominios, validarAlerta, puedeGestionar"]
     end
-    subgraph L["Capa de Lógica · Node.js + Express (server.js)"]
+    subgraph L["Capa de Lógica · Node.js + Express"]
         direction LR
         L1["Cadena de middleware<br/>cors · json · requiereAuth"]
-        L2["Controladores REST<br/>códigos HTTP"]
+        L2["Controladores REST<br/>server.js"]
+        L5["Worker Ingesta<br/>ingesta.js (node-cron)"]
         L3["Bus de eventos<br/>eventos.js"]
         L4["Canal SSE<br/>/api/eventos"]
     end
@@ -691,16 +736,21 @@ flowchart TB
         D2[("geoalerts.db<br/>SQLite (WAL)")]
     end
     OSM[("Teselas OpenStreetMap")]
+    OM[("Open-Meteo Marine API")]
 
     P2 --- OSM
+    L5 -- "HTTPS JSON" --> OM
     P1 --> P3
     P2 --> P1
     P1 -. importa .-> C1
     L2 -. importa .-> C1
+    L5 -. importa .-> C1
     P3 -- "HTTP/JSON · REST" --> L1
     L1 --> L2
     L2 --> D1
+    L5 --> D1
     L2 -- emit --> L3
+    L5 -- emit --> L3
     L3 -- on --> L4
     L4 -- "text/event-stream" --> P3
     D1 --> D2
@@ -708,8 +758,8 @@ flowchart TB
 
 | Capa | Responsabilidad | No puede |
 | --- | --- | --- |
-| Presentación | Mostrar el mapa y los formularios; validar antes de enviar; reaccionar a eventos | Acceder a la base de datos ni decidir permisos (solo oculta botones; la decisión final es del servidor) |
-| Lógica | Autenticar, autorizar, validar, coordinar transacciones, emitir eventos | Generar HTML ni conocer la estructura física del archivo de base |
+| Presentación | Mostrar el mapa con animaciones (`flyTo`/`fitBounds`) y los formularios; validar antes de enviar; reaccionar a eventos | Acceder a la base de datos ni decidir permisos (solo oculta botones; la decisión final es del servidor) |
+| Lógica | Autenticar, autorizar, validar, coordinar transacciones, ejecutar la ingesta automática (`ingesta.js`) y emitir eventos | Generar HTML ni conocer la estructura física del archivo de base |
 | Datos | Persistir con integridad (FK, `CHECK`, transacciones) | Conocer HTTP ni la interfaz |
 
 ### 2.5.2 Aislamiento multiempresa (por organismo)
@@ -733,7 +783,7 @@ flowchart LR
     SA ==> AL3
 ```
 
-Las flechas finas son los permisos de cada Administrador sobre su organismo; las gruesas, los del Superadministrador sobre todas las alertas. Cualquier combinación que **no** figura como flecha (por ejemplo, `tigre` sobre una alerta de CABA, o un administrador sobre una alerta del SMN) responde **403 Forbidden**. Todas las alertas siguen siendo visibles para todos.
+Las flechas finas son los permisos de cada Administrador sobre su organismo; las gruesas, los del Superadministrador sobre todas las alertas (incluidas las generadas automáticamente por `ingesta.js`). Cualquier combinación que **no** figura como flecha (por ejemplo, `tigre` sobre una alerta de CABA, o un administrador sobre una alerta de Open-Meteo) responde **403 Forbidden**. Todas las alertas siguen siendo visibles para todos.
 
 El aislamiento se aplica en **cuatro barreras** (defensa en profundidad):
 
@@ -752,7 +802,8 @@ La **lectura** es pública para todos (el propósito del sistema es difundir), p
 flowchart LR
     NAV["Navegador<br/>(Usuario / Admin)"] -- "HTTPS 443" --> CADDY["Caddy<br/>proxy inverso + TLS"]
     NAV -- "HTTPS" --> OSMT[("tile.openstreetmap.org")]
-    CADDY -- "HTTP 3001" --> APP["Contenedor geoalerts<br/>Node.js: API + frontend estático"]
+    CADDY -- "HTTP 3001" --> APP["Contenedor geoalerts<br/>Node.js: API + Cron Ingesta + frontend"]
+    APP -- "HTTPS" --> OM[("marine-api.open-meteo.com")]
     APP --> VOL[("Volumen /data<br/>geoalerts.db + backups")]
 ```
 
@@ -768,16 +819,17 @@ Relaciona cada requerimiento funcional con su caso de uso, las tablas y endpoint
 | RF-02 | CU-02 | ALERTA | `GET /api/alertas?tipo=` | `App.jsx`, `server.js` | CN-08, UAT-02 | ✔ Verificado |
 | RF-03 | CU-02 | ALERTA | `GET /api/alertas?gravedad=` | `App.jsx`, `server.js` | CN-08, E2E-01, UAT-02 | ✔ Verificado |
 | RF-04 | CU-02 | ALERTA | `GET /api/alertas?estado=` | `App.jsx`, `server.js` | CN-08, UAT-03 | ✔ Verificado |
-| RF-05 | CU-03 | ALERTA, ORIGEN_DATO | `GET /api/alertas/:id` | `Mapa.jsx` (popup) | CN-08, UAT-03 | ✔ Verificado |
+| RF-05 | CU-03 | ALERTA, ORIGEN_DATO | `GET /api/alertas/:id` | `Mapa.jsx` (popup + `flyTo`) | CN-08, UAT-03 | ✔ Verificado |
 | RF-06 | CU-04 | — | `GET /api/eventos` | `eventos.js`, `server.js`, `App.jsx` | CB-11, CB-12, CB-12b, E2E-01, UAT-04 | ✔ Verificado |
 | RF-07 | CU-05 | USUARIO, ORIGEN_DATO | `POST /api/login` | `auth.js` | CN-07, CB-01 a CB-05, E2E-01, UAT-05 | ✔ Verificado |
-| RF-08 | CU-06 | — | — (cliente) | `App.jsx` | UAT-05 | ◐ Verificación manual en UAT |
+| RF-08 | CU-06 | — | — (cliente) | `App.jsx` | UAT-05 | ✔ Verificado en UAT |
 | RF-09 | CU-07 | ALERTA, ORIGEN_DATO | `POST /api/alertas` | `server.js`, `db.crearAlerta` | CN-04 a CN-06, CB-10, CB-10c, E2E-01, UAT-06 | ✔ Verificado |
 | RF-10 | CU-07 | ALERTA | `POST /api/alertas` | `dominio.validarAlerta`, `CHECK` | CN-01 a CN-03, CB-10b, E2E-01, UAT-06 | ✔ Verificado |
 | RF-11 | CU-08 | ALERTA | `PATCH /api/alertas/:id/estado` | `server.js`, `db.actualizarEstado` | CN-09, CB-06, CB-07, UAT-07 | ✔ Verificado |
 | RF-12 | CU-07, CU-08 | USUARIO, ALERTA, ORIGEN_DATO | `POST /api/alertas`, `PATCH …/estado` | `dominio.puedeGestionar`, `db.actualizarEstado` | CB-06 a CB-09c, CB-12b, UAT-08 | ✔ Verificado |
+| RF-13 | CU-09 | ALERTA, ORIGEN_DATO | `POST /api/forzar-ingesta` + Cron | `ingesta.js`, `server.js` | CB-14, CN-10, UAT-09 | ✔ Verificado |
 
-**Cobertura de la matriz:** 12 de 12 requerimientos tienen al menos una prueba asociada; 11 se verifican con pruebas automatizadas y 1 (RF-08, comportamiento exclusivo del cliente) con un escenario de aceptación manual.
+**Cobertura de la matriz:** 13 de 13 requerimientos tienen al menos una prueba asociada y verificada en el cierre de la `v1.1.0`.
 
 ---
 
