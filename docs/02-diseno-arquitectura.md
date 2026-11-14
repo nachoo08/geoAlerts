@@ -476,28 +476,26 @@ En cada caso, (+) indica un paso del flujo principal exitoso y (−) una excepci
 
 ### 2.4.3 Diagrama de clases (dominio y persistencia)
 
-El backend se organiza en **módulos** de JavaScript. Cada módulo se modela como una clase con estereotipo que indica su capa; sus funciones exportadas son los métodos públicos. Las entidades de dominio se definen como tipos (`@typedef`) en `compartido/dominio.js` y TypeScript las verifica.
+El backend se organiza en **módulos** de JavaScript, representados como clases; sus funciones exportadas son los métodos públicos. Las enumeraciones se identifican con el estereotipo `enumeration`. Las entidades de dominio se definen como tipos (`@typedef`) en `compartido/dominio.js` y TypeScript las verifica. `descripcion`, `fecha_actualizacion` e `id_origen` de `Usuario` admiten valores nulos según corresponda.
 
 ```mermaid
 classDiagram
     direction LR
 
     class Alerta {
-        <<entidad>>
         +id: number
         +titulo: string
         +tipo: TipoAlerta
         +nivel_gravedad: NivelGravedad
-        +descripcion: string | null
+        +descripcion: string
         +latitud: number
         +longitud: number
         +fecha_creacion: string
-        +fecha_actualizacion: string | null
+        +fecha_actualizacion: string
         +estado: EstadoAlerta
         +id_origen: number
     }
     class OrigenDato {
-        <<entidad>>
         +id: number
         +nombre: string
         +tipo_fuente: TipoFuente
@@ -508,7 +506,7 @@ classDiagram
         +username: string
         -password_hash: string
         +rol: Rol
-        +id_origen: number | null
+        +id_origen: number
     }
     class TipoAlerta {
         <<enumeration>>
@@ -533,9 +531,7 @@ classDiagram
         ADMINISTRADOR
         SUPERADMIN
     }
-
     class Dominio {
-        <<módulo compartido>>
         +REGION
         +EVENTOS
         +validarAlerta(datos) string[]
@@ -544,7 +540,6 @@ classDiagram
         +esValorDe(lista, valor) boolean
     }
     class RepositorioDB {
-        <<módulo persistencia · db.js>>
         -db: Database
         +listarAlertas(filtros) Alerta[]
         +obtenerAlerta(id) Alerta
@@ -557,26 +552,22 @@ classDiagram
         +cerrar() void
     }
     class Auth {
-        <<módulo lógica · auth.js>>
         -JWT_SECRET: string
         +verificarCredenciales(username, password) Usuario
         +firmarToken(usuario) string
         +requiereAuth(req, res, next) void
     }
     class BusEventos {
-        <<módulo lógica · eventos.js>>
         +emit(evento, alerta) boolean
         +on(evento, suscriptor) void
         +off(evento, suscriptor) void
     }
     class ServicioIngesta {
-        <<módulo lógica · ingesta.js>>
         +PUNTOS_COSTEROS
         +ejecutarIngesta() Promise~ResultadoIngesta~
         +iniciarCronIngesta() ScheduledTask
     }
     class ControladorAPI {
-        <<módulo lógica · server.js>>
         +crearApp() Express
         +GET_alertas()
         +GET_alerta_id()
@@ -587,7 +578,6 @@ classDiagram
         +PATCH_estado()
     }
     class Database {
-        <<SQLite · better-sqlite3>>
         +prepare(sql) Statement
         +transaction(fn) Function
         +backup(destino) Promise
