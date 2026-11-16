@@ -3,6 +3,8 @@
 > **Proyecto:** geoAlerts · **Versión del documento:** 1.1.0 · **Fecha:** 14/11/2026
 > **Navegación:** [Índice](../README.md) · [Etapa 1](01-analisis-factibilidad.md) · [Etapa 2](02-diseno-arquitectura.md) · [Etapa 3](03-implementacion-testing.md) · **Etapa 4**
 
+> **Actualización del checkout (15/11/2026):** `v1.1.0` sigue siendo el release fechado el 14/11. El árbol de trabajo incluye mejoras posteriores aún sin etiqueta: bandeja inferior plegable, detalle en panel/drawer y condiciones Open-Meteo en un banner no persistente. Las cifras de pruebas de abajo distinguen la comprobación actual del histórico del release.
+
 ## Contenido
 
 1. [Release y notas de versión](#41-release-y-notas-de-versión)
@@ -25,13 +27,15 @@
 | Imagen Docker | `geoalerts:1.1.0` |
 | Región | Buenos Aires y franja costera |
 | Requisito de ejecución | Node.js 20 o superior, o Docker |
-| Calidad | 75/75 pruebas automatizadas aprobadas · cobertura de líneas 95,8 % · 0 errores de tipos · E2E en Chromium y UAT aprobadas |
+| Calidad del checkout actual | 74/74 pruebas backend aprobadas · cobertura de líneas 94,72 % · 0 errores de tipos · build frontend correcto; no hay suite E2E de Playwright en este repositorio |
 
-**Funcionalidades incluidas**
+**Funcionalidades del release y del checkout actualizado**
 
 - Mapa interactivo (Leaflet + OpenStreetMap) encuadrado en la región, con el contorno de cobertura y **transiciones dinámicas suaves (`flyTo` y `fitBounds`)** al filtrar o seleccionar alertas.
+- Marcadores seleccionables con panel lateral de detalle; en pantallas móviles se transforma en un drawer inferior.
+- Filtros, acceso administrativo, formulario de alta y listado dentro de la bandeja inferior plegable “Explorar el mapa”.
 - Alertas de viento, tormenta, sudestada y oleaje en tres niveles de gravedad (amarillo, naranja, rojo).
-- **Ingesta automática de datos externos** (`backend/ingesta.js`) programada con `node-cron` contra **Open-Meteo Marine API** (con fallback de continuidad ante fallos de red) y ejecución manual bajo demanda vía `POST /api/forzar-ingesta` para el superadministrador.
+- **Condiciones actuales de Open-Meteo Forecast API** en un banner superior. Se consultan al iniciar y cada 15 minutos; se difunden por `condiciones:actualizadas` y no se guardan en SQLite ni generan alertas o marcadores. `GET /api/condiciones` devuelve la última lectura y `GET /api/forzar-ingesta` solicita una consulta manual.
 - Filtros por tipo, gravedad y estado, incluido el historial de alertas finalizadas.
 - Detalle con organismo de origen y fechas de emisión y actualización en hora de Buenos Aires.
 - **Actualización en tiempo real** por Server-Sent Events, con indicador "en vivo" y reconexión automática.
@@ -47,7 +51,7 @@
 | Id | Limitación | Alternativa o plan |
 | --- | --- | --- |
 | LC-01 | La región es un rectángulo y abarca pequeñas zonas fuera de la provincia | Polígono real con PostGIS (v2) |
-| LC-02 | La ingesta automática está activa para Open-Meteo Marine API; el conector oficial del SMN queda preparado en `ingesta.js` | v1.2 |
+| LC-02 | Open-Meteo informa condiciones actuales de un único punto (CABA); no se ingieren alertas oficiales del SMN ni pronóstico marítimo | Integrar fuentes oficiales y, tras validación, datos costeros en una versión futura |
 | LC-03 | Los administradores se crean por configuración, no desde la interfaz | Pantalla de gestión de usuarios (v1.2) |
 | LC-04 | No hay registro de qué usuario creó cada alerta, solo de qué organismo | Columna `id_usuario` en ALERTA (v1.2) |
 | LC-05 | Sin notificaciones fuera del navegador abierto (push, correo) | Nuevos suscriptores del bus de eventos (v2) |
@@ -71,35 +75,38 @@ El historial completo de cambios está en [`CHANGELOG.md`](../CHANGELOG.md).
 
 ### 4.2.2 Escenarios de validación
 
+> Los aprobados del 08/11–12/11 corresponden a la interfaz anterior al cambio. Los escenarios visuales afectados por la bandeja inferior y el panel/drawer deben repetirse antes de etiquetar un nuevo release.
+
 | Id | Rol | Escenario | Pasos | Resultado esperado | Criticidad | Req. | Resultado |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| UAT-01 | Usuario | Conocer las alertas vigentes | Abrir el sitio sin instrucciones previas | En menos de 30 s identifica qué alerta es la más grave y dónde está | Crítico | RF-01 | ✔ Aprobado |
-| UAT-02 | Usuario | Ver solo sudestadas | Elegir "Sudestada" en Tipo | Solo quedan las alertas de sudestada y el mapa reencuadra suavemente (`fitBounds`) | Normal | RF-02, RF-03 | ✔ Aprobado |
-| UAT-03 | Usuario | Consultar el historial y el detalle | Elegir "Finalizadas" y abrir una alerta | Ve la alerta de Necochea punteada, el mapa vuela al punto (`flyTo`) y muestra su fuente y fechas | Normal | RF-04, RF-05 | ✔ Aprobado |
-| UAT-04 | Usuario | Enterarse de una alerta nueva sin recargar | Dejar el mapa abierto mientras un Administrador publica | La alerta aparece sola en menos de 2 s | Crítico | RF-06 | ✔ Aprobado |
-| UAT-05 | Administrador | Ingresar y salir | Iniciar sesión, verificar su organismo, presionar "Salir" | Ve su organismo; tras salir no puede publicar | Crítico | RF-07, RF-08 | ✔ Aprobado |
-| UAT-06 | Administrador | Publicar un aviso local | Completar el formulario, marcar el punto y publicar; intentar marcar un punto en Uruguay | Publica en menos de 1 minuto; el punto fuera de la región es rechazado | Crítico | RF-09, RF-10 | ✔ Aprobado |
-| UAT-07 | Administrador | Cerrar una alerta | Abrir una alerta propia y finalizarla | Desaparece de "Activas" y aparece en "Finalizadas" | Normal | RF-11 | ✔ Aprobado |
-| UAT-08 | Administrador | Respetar avisos de otros organismos | Abrir una alerta de otro organismo o de Open-Meteo | No aparece el botón de cambio de estado | Crítico | RF-12 | ✔ Aprobado |
-| UAT-09 | Superadministrador | Sincronizar fuentes externas | Iniciar sesión como `admin` y ejecutar sincronización | Se ingieren alertas marítimas desde Open-Meteo sin duplicar existentes y se reflejan en el mapa | Normal | RF-13 | ✔ Aprobado |
+| UAT-01 | Usuario | Conocer las alertas vigentes | Abrir el sitio sin instrucciones previas | Identifica el mapa, el banner meteorológico y cómo abrir “Explorar el mapa” | Crítico | RF-01 | Pendiente de repetir |
+| UAT-02 | Usuario | Ver solo sudestadas | Abrir la bandeja y elegir "Sudestada" en Tipo | Solo quedan alertas de sudestada y el mapa reencuadra (`fitBounds`) | Normal | RF-02, RF-03 | Pendiente de repetir |
+| UAT-03 | Usuario | Consultar el historial y el detalle | Abrir “Explorar el mapa”, filtrar finalizadas y seleccionar una | Ve la alerta punteada, el mapa vuela al punto y aparece el detalle lateral (drawer inferior en móvil) | Normal | RF-04, RF-05 | Pendiente de repetir |
+| UAT-04 | Usuario | Enterarse de una alerta nueva sin recargar | Dejar el mapa abierto mientras un Administrador publica | La alerta aparece sola en menos de 2 s mediante SSE | Crítico | RF-06 | ✔ Aprobado |
+| UAT-05 | Administrador | Ingresar y salir | Abrir la bandeja, iniciar sesión, verificar el organismo y presionar "Salir" | La bandeja despliega las herramientas administrativas; tras salir no puede publicar | Crítico | RF-07, RF-08 | Pendiente de repetir |
+| UAT-06 | Administrador | Publicar un aviso local | Completar el formulario en la bandeja, colapsarla para elegir el punto y publicar; intentar un punto fuera de región | Publica en menos de 1 minuto; el punto fuera de la región es rechazado | Crítico | RF-09, RF-10 | Pendiente de repetir |
+| UAT-07 | Administrador | Cerrar una alerta | Seleccionar una alerta propia y finalizarla desde el detalle | Desaparece de "Activas" y aparece en "Finalizadas" | Normal | RF-11 | Pendiente de repetir |
+| UAT-08 | Administrador | Respetar avisos de otros organismos | Abrir una alerta de otro organismo o de una API | No aparece el botón de cambio de estado | Crítico | RF-12 | Pendiente de repetir |
+| UAT-09 | Usuario | Consultar condiciones actuales | Esperar la sincronización o solicitar `GET /api/forzar-ingesta` | Se actualiza el banner; el total y los marcadores de alertas no aumentan | Normal | RF-13 | Pendiente de repetir |
+| UAT-10 | Usuario móvil | Usar los controles y consultar detalle | Abrir la bandeja, filtrar y luego seleccionar un marcador | La bandeja se pliega y el detalle aparece como drawer inferior, sin perder el contexto del mapa | Normal | RF-05, RNF-06 | Pendiente de repetir |
 
-> Los escenarios UAT se ejecutaron satisfactoriamente entre el 08/11/2026 y el 12/11/2026 (semana 8 del cronograma real), logrando el 100 % de aprobación en todos los casos críticos y normales.
+> Los resultados históricos UAT se obtuvieron entre el 08/11/2026 y el 12/11/2026. La bandeja, el panel responsive y el banner se agregaron después; los casos marcados como pendientes deben repetirse para aprobar el checkout actualizado.
 
 ### 4.2.3 Matriz de compatibilidad de navegadores
 
-geoAlerts usa tecnologías estándar con soporte amplio: ES2020 (objetivo de compilación de Vite), `fetch`, `EventSource` (SSE), `sessionStorage` y Leaflet 1.9. Internet Explorer queda excluido porque React 18 y el código ES2020 que genera Vite no lo soportan.
+geoAlerts usa tecnologías estándar con soporte amplio: ES2020 (objetivo de compilación de Vite), `fetch`, `EventSource` (SSE), `sessionStorage` y Leaflet 1.9. Internet Explorer queda excluido porque React 18 y el código ES2020 que genera Vite no lo soportan. La matriz previa corresponde a la UI del release; la compatibilidad visual de la bandeja y del drawer aún requiere repetir UAT.
 
 | Navegador | Plataforma | Versiones objetivo | Motor | Verificación |
 | --- | --- | --- | --- | --- |
-| Chromium / Google Chrome | Windows, macOS, Linux | Últimas 2 versiones | Blink | ✔ E2E-01 y UAT aprobadas |
-| Microsoft Edge | Windows | Últimas 2 versiones | Blink | ✔ UAT aprobada |
-| Mozilla Firefox | Windows, macOS, Linux | Últimas 2 versiones y ESR | Gecko | ✔ UAT aprobada |
-| Safari | macOS | Últimas 2 versiones | WebKit | ✔ UAT aprobada |
-| Chrome para Android | Android 10 o superior | Última versión | Blink | ✔ UAT aprobada (vista apilada en pantalla angosta) |
-| Safari para iOS | iOS 16 o superior | Última versión | WebKit | ✔ UAT aprobada (vista apilada en pantalla angosta) |
+| Chromium / Google Chrome | Windows, macOS, Linux | Últimas 2 versiones | Blink | ✔ UAT histórica de la interfaz anterior; sin E2E automatizada |
+| Microsoft Edge | Windows | Últimas 2 versiones | Blink | ✔ UAT histórica de la interfaz anterior |
+| Mozilla Firefox | Windows, macOS, Linux | Últimas 2 versiones y ESR | Gecko | ✔ UAT histórica de la interfaz anterior |
+| Safari | macOS | Últimas 2 versiones | WebKit | ✔ UAT histórica de la interfaz anterior |
+| Chrome para Android | Android 10 o superior | Última versión | Blink | ✔ UAT histórica; vista nueva pendiente de repetir |
+| Safari para iOS | iOS 16 o superior | Última versión | WebKit | ✔ UAT histórica; vista nueva pendiente de repetir |
 | Internet Explorer 11 | Windows | — | Trident | ✘ No soportado |
 
-Puntos observados en cada navegador: carga de teselas, animaciones `flyTo` y `fitBounds`, clic sobre el mapa para tomar coordenadas, apertura de popups, indicador "Actualización en vivo" y recepción de eventos con la pestaña en segundo plano.
+Puntos para verificar en cada navegador: carga de teselas, `flyTo` y `fitBounds`, selección de coordenadas, panel/drawer de detalle, apertura y cierre de la bandeja, indicador en vivo, banner de condiciones y recepción de eventos en segundo plano.
 
 ---
 
@@ -192,15 +199,15 @@ curl -fsS "https://<dominio>/api/alertas?estado=ACTIVA" | head -c 300
    | Rojo | Rojo | Fenómeno excepcionalmente peligroso; seguí las indicaciones de las autoridades |
 
    Los círculos más grandes corresponden a las alertas más graves.
-3. Arriba a la izquierda verás **"Actualización en vivo"** con un punto verde: el mapa se actualiza solo cuando se publica o se cierra una alerta (tanto manual como automática). No hace falta recargar.
+3. En la barra superior verás el estado de conexión SSE. Debajo aparece el banner **“Ahora”** con temperatura, condiciones y viento de CABA, cuando ya hay una lectura. El banner no representa una alerta oficial.
 
 **2. Ver el detalle de una alerta**
 
-Hacé clic sobre un círculo (o elegí una alerta de la lista). El mapa se desplazará suavemente hacia el punto y se abrirá un recuadro con el título, el nivel, el tipo de fenómeno, la descripción, **quién la emitió** (organismo o fuente externa) y la fecha y hora en horario de Buenos Aires.
+Hacé clic sobre un círculo (o abrí “Explorar el mapa” y elegí una alerta de la lista). El mapa se desplazará suavemente hacia el punto y se abrirá un panel a la derecha con el título, el ícono del tipo, el nivel, la descripción, **quién la emitió** y las fechas en horario de Buenos Aires. En móvil el detalle aparece como un drawer desde abajo.
 
 **3. Filtrar**
 
-En el panel lateral (o debajo del mapa en el teléfono):
+Abrí la bandeja inferior plegable **“Explorar el mapa”**:
 
 - **Tipo:** Viento, Tormenta, Sudestada u Oleaje.
 - **Gravedad:** Amarillo, Naranja o Rojo.
@@ -218,17 +225,17 @@ Arrastrá para desplazarte; usá la rueda del mouse, los botones + y − o el ge
 
 **1. Iniciar sesión**
 
-1. En el panel lateral, sección **Acceso administradores**, ingresá usuario y contraseña y presioná **Ingresar**.
-2. Verás tu usuario y el nombre de tu organismo sobre el formulario **Nueva alerta**.
+1. Abrí **“Explorar el mapa”**, ingresá usuario y contraseña en **Acceso administradores** y presioná **Ingresar**.
+2. La bandeja se abrirá con tu usuario, organismo y el formulario **Nueva alerta**.
 3. La sesión dura 8 horas. Si vence, el sistema te avisa y tenés que volver a ingresar.
 
 **2. Publicar una alerta**
 
 1. Completá el **Título** (hasta 120 caracteres), elegí el **Tipo** y la **Gravedad** y, si querés, escribí una **Descripción** (hasta 1000 caracteres) con recomendaciones concretas.
-2. **Hacé clic en el mapa** en el lugar del evento. Aparece un marcador y se muestran las coordenadas debajo del formulario. Si el punto está fuera de la zona de cobertura, el sistema lo rechaza.
+2. Si la bandeja tapa el punto que necesitás, plegala y hacé clic en el mapa. Aparece un marcador de ubicación y las coordenadas se muestran en el formulario. Si el punto está fuera de la zona de cobertura, el sistema lo rechaza.
 3. Presioná **Publicar alerta**. Verás "Alerta publicada correctamente" y la alerta aparece al instante en los mapas de todos los usuarios conectados.
 
-*Superadministrador:* además puede elegir a nombre de qué **organismo** publica y cuenta con el botón **Sincronizar fuentes externas** para ejecutar manualmente la ingesta desde Open-Meteo Marine API.
+*Superadministrador:* además puede elegir a nombre de qué **organismo** publica. Las condiciones de Open-Meteo se actualizan automáticamente; `GET /api/forzar-ingesta` permite solicitar una lectura manual, que solo actualiza el banner y no publica una alerta.
 
 **3. Finalizar o reactivar una alerta**
 
@@ -263,7 +270,13 @@ Presioná **Salir** junto a tu nombre, sobre todo en computadoras compartidas.
 ### 4.4.3 Preguntas frecuentes
 
 **¿geoAlerts reemplaza a las alertas oficiales?**
-No. Las complementa reuniendo en un solo mapa los avisos oficiales, datos marítimos automáticos y alertas locales. Ante una emergencia, seguí siempre las indicaciones de las autoridades.
+No. Las complementa con alertas locales y fuentes de ejemplo. El banner de Open-Meteo muestra condiciones actuales, no un aviso o pronóstico oficial. Ante una emergencia, seguí siempre las indicaciones de las autoridades.
+
+**¿Las condiciones de Open-Meteo crean alertas o marcadores?**
+No. Se muestran en el banner superior y se actualizan al iniciar el backend y cada 15 minutos. No se guardan en la tabla de alertas ni cambian el mapa.
+
+**¿Dónde están los filtros y las herramientas de administración?**
+En la bandeja plegable **“Explorar el mapa”**, en la parte inferior. Abrila para filtrar, iniciar sesión o publicar una alerta; al iniciar sesión se abre automáticamente.
 
 **¿Por qué solo cubre Buenos Aires?**
 Porque un mismo nivel de alerta tiene impactos muy distintos según el clima de cada región, y fenómenos como la sudestada son propios del Río de la Plata. Ver la [justificación por microclimas](01-analisis-factibilidad.md#12-alcance-geográfico-y-justificación-por-microclimas).
@@ -284,7 +297,7 @@ No. El navegador reintenta solo cada 5 segundos y además el mapa se refresca ca
 Porque pertenece a otro organismo o a una fuente oficial. Cada organismo gestiona solo sus avisos.
 
 **¿Cómo se agrega un organismo o un administrador nuevo?**
-En v1.1 lo hace el responsable técnico por configuración. La pantalla de gestión está prevista para v1.2.
+Lo hace el responsable técnico por configuración. La pantalla de gestión está prevista para una versión futura.
 
 ---
 
@@ -365,8 +378,8 @@ En v1.1 lo hace el responsable técnico por configuración. La pantalla de gesti
 
 | Prioridad | Mejora | Versión | Estado / Beneficio |
 | --- | --- | --- | --- |
-| 1 | Ingesta automática de oleaje de Open-Meteo Marine API (`node-cron`) | v1.1 | **✔ Implementado en v1.1.0** — Cobertura marítima automática sin carga manual |
-| 2 | Ampliación de ingesta automática con alertas oficiales del SMN | v1.2 | Cobertura meteorológica oficial unificada |
+| 1 | Ingesta de alertas oficiales del SMN | v1.2 | Fuente oficial normalizada por zona |
+| 2 | Ampliar las condiciones Open-Meteo a puntos costeros con unidad visual separada de las alertas oficiales | v1.2 | Más contexto meteorológico sin inventar avisos |
 | 3 | Gestión de organismos y administradores desde la interfaz | v1.2 | Autonomía del superadministrador |
 | 4 | Registro del usuario creador (`id_usuario`) y bitácora de cambios | v1.2 | Auditoría completa |
 | 5 | Limitador de intentos de inicio de sesión | v1.1.x | Defensa contra fuerza bruta |
@@ -381,12 +394,14 @@ En v1.1 lo hace el responsable técnico por configuración. La pantalla de gesti
 | --- | --- |
 | Objetivos específicos OE-1 a OE-7 implementados | ✔ Completado |
 | 13 requerimientos funcionales trazados a pruebas | ✔ Completado (13/13 verificados) |
-| Pruebas automatizadas en verde | ✔ 75/75 (cobertura 95,8 %) |
-| Ingesta automática (`node-cron` + Open-Meteo) y animaciones Leaflet (`flyTo`/`fitBounds`) | ✔ Completado en `v1.1.0` |
+| Pruebas automatizadas actuales | ✔ 74/74 (cobertura de líneas 94,72 %) |
+| Ingesta de condiciones actuales (`node-cron` + Open-Meteo) | ✔ Al inicio y cada 15 min; banner SSE, sin alertas persistidas |
+| Bandeja inferior, detalle lateral y drawer móvil | ✔ Implementados en el checkout actualizado; release pendiente |
 | Documentación de Etapas 1 a 4 | ✔ Completado |
 | Manuales de Usuario y Administrador | ✔ Completado |
-| UAT con usuarios reales (19/09/2026 – 14/11/2026) | ✔ Aprobado (9/9 escenarios) |
-| Despliegue productivo y entrega final (14/11/2026) | ✔ Completado (`v1.1.0`) |
+| UAT histórico con usuarios reales (08/11/2026 – 12/11/2026) | ✔ 9/9 escenarios de la interfaz anterior |
+| UAT de la bandeja, el panel responsive y el banner | Pendiente antes de etiquetar un nuevo release |
+| Despliegue productivo y entrega final (14/11/2026) | ✔ Completado (`v1.1.0`); las mejoras del 15/11 aún no están etiquetadas |
 
 **Lecciones aprendidas**
 

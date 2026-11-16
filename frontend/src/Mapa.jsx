@@ -8,14 +8,15 @@
  * - Encuadre fijo en la región de cobertura (Buenos Aires y franja costera).
  * - Cada alerta = círculo coloreado por gravedad; las finalizadas, punteadas.
  * - Con sesión de Administrador, un clic captura las coordenadas para el alta
- *   y el popup ofrece cambiar el estado solo si la alerta es de su organismo.
+ *   y los marcadores abren el panel de detalle lateral.
  */
-import { MapContainer, TileLayer, CircleMarker, Popup, Marker, Rectangle, useMapEvents } from 'react-leaflet';
+import { useEffect } from 'react';
+import { MapContainer, TileLayer, CircleMarker, Marker, Rectangle, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
-import { REGION, ETIQUETA_TIPO, puedeGestionar } from '@geoalerts/compartido';
+import { REGION } from '@geoalerts/compartido';
 
 // Corrige las rutas de los íconos por defecto de Leaflet al empaquetar con Vite
 L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow });
@@ -33,14 +34,33 @@ function SelectorCoordenadas({ onSeleccion }) {
   return null;
 }
 
-/** Fecha SQLite UTC ("AAAA-MM-DD HH:MM:SS") → hora local de Buenos Aires. */
-function formatearFecha(fechaSqlite) {
-  return new Date(fechaSqlite.replace(' ', 'T') + 'Z').toLocaleString('es-AR', {
-    timeZone: 'America/Argentina/Buenos_Aires', dateStyle: 'short', timeStyle: 'short',
-  });
+/** Componente interno para manejar los zooms automáticos y ajustes de límites */
+function ControlZoomAutomatico({ alertaSeleccionada, alertas }) {
+  const map = useMap();
+
+  useEffect(() => {
+    // 1. Si el usuario hizo clic en una alerta específica de la lista
+    if (alertaSeleccionada) {
+      map.flyTo([alertaSeleccionada.latitud, alertaSeleccionada.longitud], 14, {
+        duration: 1.5
+      });
+    } 
+    // 2. Si no hay una seleccionada pero hay alertas visibles, ajusta la vista a los límites de las filtradas
+    else if (alertas && alertas.length > 0) {
+      const puntos = alertas.map(a => [a.latitud, a.longitud]);
+      const bounds = L.latLngBounds(puntos);
+      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+    }
+    const timer = window.setTimeout(() => map.invalidateSize({ pan: false }), 350);
+    return () => window.clearTimeout(timer);
+  }, [alertaSeleccionada, alertas, map]);
+
+  return null;
 }
 
-export default function Mapa({ alertas, usuario, onCambiarEstado, puntoSeleccionado, onSeleccionPunto }) {
+export default function Mapa({
+  alertas, usuario, puntoSeleccionado, onSeleccionPunto, alertaSeleccionada, onSeleccionAlerta,
+}) {
   return (
     <MapContainer
       bounds={LIMITES_REGION}
@@ -50,6 +70,9 @@ export default function Mapa({ alertas, usuario, onCambiarEstado, puntoSeleccion
       className="mapa"
       scrollWheelZoom
     >
+      {/* Control para hacer zoom automático al filtrar o seleccionar */}
+      <ControlZoomAutomatico alertaSeleccionada={alertaSeleccionada} alertas={alertas} />
+
       {/* Capa base: teselas de OpenStreetMap (atribución obligatoria por licencia ODbL) */}
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -73,33 +96,15 @@ export default function Mapa({ alertas, usuario, onCambiarEstado, puntoSeleccion
             fillColor: COLOR_GRAVEDAD[a.nivel_gravedad],
             fillOpacity: a.estado === 'ACTIVA' ? 0.55 : 0.15,
             dashArray: a.estado === 'ACTIVA' ? null : '4 4',
+            weight: alertaSeleccionada?.id === a.id ? 4 : 2,
           }}
-        >
-          <Popup>
-            <div className="popup">
-              <strong>{a.titulo}</strong>
-              <div className="popup-meta">
-                <span className={`chip chip-${a.nivel_gravedad.toLowerCase()}`}>{a.nivel_gravedad}</span>
-                <span>{ETIQUETA_TIPO[a.tipo]}</span>
-                <span>· {a.estado === 'ACTIVA' ? 'Activa' : 'Finalizada'}</span>
-              </div>
-              {a.descripcion && <p>{a.descripcion}</p>}
-              <small>
-                Fuente: {a.origen_nombre}<br />
-                Emitida: {formatearFecha(a.fecha_creacion)}
-                {a.fecha_actualizacion && <><br />Actualizada: {formatearFecha(a.fecha_actualizacion)}</>}
-              </small>
-              {puedeGestionar(usuario, a) && (
-                <button
-                  className="btn btn-small"
-                  onClick={() => onCambiarEstado(a.id, a.estado === 'ACTIVA' ? 'FINALIZADA' : 'ACTIVA')}
-                >
-                  {a.estado === 'ACTIVA' ? 'Marcar como finalizada' : 'Reactivar'}
-                </button>
-              )}
-            </div>
-          </Popup>
-        </CircleMarker>
+          eventHandlers={{
+            click: (evento) => {
+              evento.originalEvent.stopPropagation();
+              onSeleccionAlerta(a);
+            },
+          }}
+        />
       ))}
 
       {usuario && <SelectorCoordenadas onSeleccion={onSeleccionPunto} />}

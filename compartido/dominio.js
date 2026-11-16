@@ -39,6 +39,7 @@ export const REGION = Object.freeze({
 export const EVENTOS = Object.freeze({
   ALERTA_CREADA: 'alerta:creada',
   ALERTA_ACTUALIZADA: 'alerta:actualizada',
+  CONDICIONES_ACTUALIZADAS: 'condiciones:actualizadas',
 });
 
 export const ETIQUETA_TIPO = Object.freeze({

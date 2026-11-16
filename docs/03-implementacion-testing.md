@@ -3,6 +3,8 @@
 > **Proyecto:** geoAlerts · **Versión del documento:** 1.1.0 · **Fecha:** 14/11/2026
 > **Navegación:** [Índice](../README.md) · [Etapa 1](01-analisis-factibilidad.md) · [Etapa 2](02-diseno-arquitectura.md) · **Etapa 3** · [Etapa 4](04-release-mantenimiento.md)
 
+> **Actualización del checkout (15/11/2026):** estructura y pruebas verificadas contra el código actual. La bandeja de controles está abajo y plegada inicialmente; los detalles de alertas se muestran aparte. Open-Meteo actualiza un banner al iniciar y cada 15 minutos, sin insertar alertas. La versión `v1.1.0` documenta el corte previo; estas mejoras todavía no tienen una etiqueta de release nueva.
+
 ## Contenido
 
 1. [Preparación del entorno](#31-preparación-del-entorno)
@@ -35,8 +37,9 @@ geoAlerts/
 │   ├── db.js                # conexión única, sentencias preparadas, transacciones
 │   ├── auth.js              # bcrypt + JWT + middleware requiereAuth
 │   ├── eventos.js           # bus de eventos de dominio (EventEmitter)
-│   ├── ingesta.js           # worker automático (node-cron + Open-Meteo Marine API)
-│   ├── server.js            # API REST orientada a eventos + canal SSE + /api/forzar-ingesta
+│   ├── services/
+│   │   └── ingesta.js       # condiciones actuales de Open-Meteo (inicio + cron cada 15 min)
+│   ├── server.js            # API REST + SSE + /api/condiciones
 │   ├── scripts/backup.js    # respaldo en caliente de la base
 │   └── tests/               # caja blanca y caja negra (node:test)
 │
@@ -47,8 +50,10 @@ geoAlerts/
 │   ├── e2e/recorrido.e2e.mjs  # prueba extremo a extremo en navegador real
 │   └── src/
 │       ├── main.jsx · styles.css
-│       ├── App.jsx          # filtros, sesión, formulario, suscripción SSE, botón ingesta
-│       ├── Mapa.jsx         # Leaflet + OpenStreetMap, marcadores, popups, flyTo / fitBounds
+│       ├── App.jsx          # banner, bandeja inferior plegable, filtros y sesión
+│       ├── Mapa.jsx         # Leaflet + OpenStreetMap, marcadores, flyTo / fitBounds
+│       ├── PanelAlerta.jsx  # detalle lateral / drawer inferior en móvil
+│       ├── styles.css       # diseño responsive
 │       └── api.js           # cliente HTTP y EventSource
 │
 ├── infra/                   # despliegue
@@ -96,13 +101,13 @@ Usuarios de demostración (solo fuera de producción):
 | `CORS_ORIGIN` | Cualquier origen | Recomendada | Dominio autorizado a llamar a la API |
 | `NODE_ENV` | — | `production` | Desactiva usuarios demo y exige secretos |
 | `BACKUP_DIR` | `backups/` junto a la base | No | Carpeta de respaldos |
-| `INGESTA_CRON` | `*/30 * * * *` (cada 30 min) | No | Expresión cron del worker automático (`ingesta.js`); desactivable en tests |
+| Cron de Open-Meteo | `*/15 * * * *` (cada 15 min) | No | Se configura en `backend/services/ingesta.js`; además hay una consulta al iniciar. No se controla por variable de entorno |
 
 ### 3.1.4 Control de versiones de dependencias
 
 - **Versiones exactas** en todos los `package.json` (sin `^` ni `~`): una instalación hoy y dentro de un año resuelven las mismas versiones directas.
 - **`package-lock.json` versionado:** fija también las dependencias transitivas. En integración continua y en Docker se usa `npm ci`, que instala exactamente lo del lockfile y falla si no coincide con los `package.json`.
-- **Versionado semántico del producto** (MAJOR.MINOR.PATCH): v1.0.0 fue el MVP inicial; v1.1.0 incorpora la ingesta automática con `node-cron`/Open-Meteo y las animaciones dinámicas del mapa (`flyTo`/`fitBounds`).
+- **Versionado semántico del producto** (MAJOR.MINOR.PATCH): v1.0.0 fue el MVP inicial; v1.1.0 es el release anterior a las actualizaciones de interfaz y banner descritas en este documento. No se debe presentar este checkout como un nuevo release hasta etiquetarlo.
 - **Git:** rama `main` protegida; ramas `feature/…` y `fix/…` por tarea; integración por *pull request* con revisión y pruebas en verde; cada release se marca con una etiqueta (`v1.0.0`, `v1.1.0`) que permite la reversión.
 - **Actualizaciones:** `npm outdated` y `npm audit` mensuales (ver [mantenimiento preventivo](04-release-mantenimiento.md#45-plan-de-mantenimiento)).
 
@@ -135,23 +140,23 @@ Usuarios de demostración (solo fuera de producción):
 | 2 | `backend/schema.sql` + `db.js` | 1 | CB-10, CB-10b |
 | 3 | `backend/auth.js` | 2 | CB-01 a CB-05, CN-07 |
 | 4 | `backend/eventos.js` | 1 | CB-11 |
-| 5 | `backend/ingesta.js` | 1, 2, 4 | CB-14, CN-10 |
-| 6 | `backend/server.js` | 1 a 5 | CN-01 a CN-10, CB-06 a CB-14 |
-| 7 | `frontend/src/api.js` + `Mapa.jsx` + `App.jsx` | 1, 6 | Build de Vite sin errores; E2E-01 |
+| 5 | `backend/services/ingesta.js` | 1, 4 | CB-12, pruebas de ingesta |
+| 6 | `backend/server.js` | 1 a 5 | CN-01 a CN-09, CB-06 a CB-13 |
+| 7 | `frontend/src/api.js` + `Mapa.jsx` + `PanelAlerta.jsx` + `App.jsx` | 1, 6 | Build de Vite sin errores |
 | 8 | `infra/` | 6, 7 | Arranque en modo producción; `/api/salud` → 200 |
 
 ### 3.2.2 Pautas de código limpio
 
 | Pauta | Aplicación en geoAlerts |
 | --- | --- |
-| Nombres expresivos en español, consistentes con el dominio | `validarAlerta`, `puedeGestionar`, `crearAlerta`, `ejecutarIngesta`, `REGION`, `EVENTOS.ALERTA_CREADA` |
-| Funciones cortas con una sola responsabilidad | `parsearId`, `dentroDeRegion`, `aNumero`, `verificarCredenciales`, `clasificarOleaje` |
+| Nombres expresivos en español, consistentes con el dominio | `validarAlerta`, `puedeGestionar`, `crearAlerta`, `sincronizarOpenMeteo`, `REGION`, `EVENTOS.CONDICIONES_ACTUALIZADAS` |
+| Funciones cortas con una sola responsabilidad | `parsearId`, `dentroDeRegion`, `aNumero`, `verificarCredenciales`, `sincronizarOpenMeteo` |
 | No repetir reglas (DRY) | Las validaciones viven **solo** en `compartido/dominio.js` y las usan cliente, servidor e ingesta |
 | Retorno temprano | Cada controlador responde y hace `return` ante el primer error, sin anidar `if` |
-| Sin "números mágicos" | Límites en constantes: `TITULO_MAX`, `DESCRIPCION_MAX`, `REGION`, `LATIDO_SSE_MS`, `UMBRALES_OLEAJE` |
+| Sin "números mágicos" | Límites en constantes: `TITULO_MAX`, `DESCRIPCION_MAX`, `REGION`, `LATIDO_SSE_MS` |
 | Comentarios que explican el **por qué** | Por qué no hay pool de conexiones; por qué el hash ficticio en el login; por qué `X-Accel-Buffering` |
 | Errores sin filtrar detalles internos | El 500 devuelve un mensaje genérico; el detalle va al log del servidor |
-| Configuración fuera del código | Secretos, rutas y expresión cron por variables de entorno |
+| Configuración fuera del código | Secretos y rutas por variables de entorno; el intervalo cron actual está definido en `iniciarIngestaAutomatica()` |
 
 ### 3.2.3 Tipado estricto
 
@@ -169,7 +174,7 @@ export const TIPOS_ALERTA = /** @type {const} */ (['VIENTO', 'TORMENTA', 'SUDEST
 export function puedeGestionar(usuario, alerta) { /* ... */ }
 ```
 
-Resultado de `npm run typecheck`: **0 errores** sobre los archivos verificados (`compartido/dominio.js`; `backend/db.js`, `auth.js`, `eventos.js`, `ingesta.js`, `server.js`, `scripts/backup.js`; y los archivos de `backend/tests/`).
+Resultado de `npm run typecheck`: **0 errores** sobre los archivos JavaScript verificados de `compartido/` y `backend/`, incluidos sus tests.
 
 ### 3.2.4 Transacciones SQL y consultas parametrizadas
 
@@ -193,7 +198,7 @@ return db.prepare(`${SELECT_ALERTA}${where} ORDER BY ...`).all(...activas.map(([
 
 La prueba **CB-10c** envía el título `x'); DROP TABLE ALERTA; --`: se guarda como texto literal y la tabla sigue intacta.
 
-**Transacciones.** El alta (manual o por ingesta automática) y el cambio de estado se ejecutan dentro de `db.transaction()`: si cualquier sentencia falla, SQLite revierte todas (ROLLBACK) y no quedan datos a medias.
+**Transacciones.** El alta manual y el cambio de estado se ejecutan dentro de `db.transaction()`: si una sentencia falla, SQLite revierte la operación. La consulta de Open-Meteo solo actualiza una caché en memoria y no escribe en la base.
 
 ```js
 export const crearAlerta = db.transaction((datos) => {
@@ -204,7 +209,7 @@ export const crearAlerta = db.transaction((datos) => {
 
 **Conexión y "pool".** better-sqlite3 es síncrono y SQLite admite un único escritor, por lo que un pool de N conexiones no mejora el rendimiento y agrega riesgo de bloqueos. Se usa una **conexión única por proceso** con **sentencias preparadas cacheadas**, que cumple la función del pool (reutilizar recursos costosos). Se configuran `foreign_keys = ON`, `journal_mode = WAL` (los lectores no bloquean al escritor) y `busy_timeout = 5000`. Si en el futuro se migra a PostgreSQL/PostGIS, ahí sí corresponde un pool (`pg.Pool`), y el cambio queda encapsulado en `db.js`.
 
-### 3.2.5 Servidor orientado a eventos, ingesta automática y UX cartográfica
+### 3.2.5 Servidor orientado a eventos, condiciones actuales y UX cartográfica
 
 **Bus de eventos y SSE (`server.js` + `eventos.js`).**
 
@@ -215,12 +220,13 @@ bus.emit(EVENTOS.ALERTA_CREADA, alerta);
 
 // Canal SSE — cada navegador conectado SE SUSCRIBE y se da de baja al cerrar
 bus.on(EVENTOS.ALERTA_CREADA, alCrear);
-req.on('close', () => { clearInterval(latido); bus.off(EVENTOS.ALERTA_CREADA, alCrear); /* … */ });
+bus.on(EVENTOS.CONDICIONES_ACTUALIZADAS, alActualizarCondiciones);
+req.on('close', () => { clearInterval(latido); bus.off(EVENTOS.CONDICIONES_ACTUALIZADAS, alActualizarCondiciones); /* … */ });
 ```
 
-**Ingesta automática (`backend/ingesta.js`).** El worker utiliza `node-cron` para ejecutar periódicamente `ejecutarIngesta()` (y también puede invocarse manualmente por un `SUPERADMIN` mediante `POST /api/forzar-ingesta`). Consulta los puntos costeros monitoreados en Open-Meteo Marine API, clasifica la altura de ola (`wave_height`) en niveles de gravedad (`AMARILLO`, `NARANJA`, `ROJO`), evita duplicados activos para el mismo punto y origen, inserta las alertas nuevas en transacción y emite `EVENTOS.ALERTA_CREADA` en el bus para que todos los mapas conectados se actualicen en tiempo real. Si la API externa no está disponible, aplica un fallback controlado para garantizar continuidad.
+**Condiciones actuales (`backend/services/ingesta.js`).** El backend consulta Open-Meteo Forecast API al iniciar y luego cada 15 minutos. Valida temperatura, código meteorológico y velocidad del viento; guarda la última respuesta válida solo en memoria y emite `EVENTOS.CONDICIONES_ACTUALIZADAS`. `GET /api/condiciones` devuelve el snapshot; `GET /api/forzar-ingesta` inicia una consulta manual. Este proceso no inserta en SQLite, no clasifica gravedad y no emite `alerta:creada`. Si falla la API, conserva la última lectura válida (si la hubo) y registra el error; no simula datos de respaldo.
 
-**Animaciones dinámicas en Leaflet (`frontend/src/Mapa.jsx`).** Se incorporó un controlador de vista (`ControladorVistaMapa`) sobre `useMap()` que utiliza `map.flyTo([lat, lng], 11, { duration: 1.2 })` cuando el usuario selecciona una alerta específica (desde el listado o al abrir su detalle) y `map.fitBounds(bounds, { padding: [40, 40], maxZoom: 10 })` cuando cambian los filtros activos, logrando transiciones fluidas sin saltos bruscos de cámara.
+**Interfaz cartográfica (`frontend/src/Mapa.jsx`, `App.jsx`, `PanelAlerta.jsx`).** Los clics en marcadores y en la lista seleccionan la alerta y abren un panel lateral con el detalle; en móvil es un drawer inferior. El mapa enfoca la alerta con `flyTo` y se reencuadra al cambiar los filtros con `fitBounds`. Filtros, inicio de sesión, formulario administrativo y lista están en la bandeja inferior plegable “Explorar el mapa”. El banner superior, separado del mapa, recibe las condiciones SSE.
 
 Otros eventos que gestiona el servidor: las señales `SIGINT` y `SIGTERM` del sistema operativo disparan un **apagado ordenado** (detiene la tarea cron, deja de aceptar conexiones, corta los flujos SSE y cierra la base).
 
@@ -232,12 +238,12 @@ Otros eventos que gestiona el servidor: las señales `SIGINT` y `SIGTERM` del si
 
 | Nivel | Técnica | Herramienta | Ubicación | Casos |
 | --- | --- | --- | --- | --- |
-| Unitario e integración (lógica interna) | **Caja blanca**: caminos lógicos, ramas, transacciones, ingesta y suscripciones | `node:test` + `assert` | `backend/tests/caja-blanca.test.js` | 20 |
-| Integración de API | **Caja negra**: partición de equivalencias y valores límite | `node:test` + `fetch` | `backend/tests/caja-negra.test.js` | 55 |
-| Extremo a extremo | Recorrido funcional en navegador real | Playwright (Chromium) | `frontend/e2e/recorrido.e2e.mjs` | 1 escenario, 7 verificaciones |
-| Aceptación | Escenarios con usuarios reales | Manual | [Etapa 4](04-release-mantenimiento.md#42-pruebas-de-aceptación-uat) | 9 |
+| Unitario e integración (lógica interna) | **Caja blanca**: ramas, transacciones, eventos SSE e ingesta | `node:test` + `assert` | `backend/tests/caja-blanca.test.js` | Incluido en 74 |
+| Integración de API | **Caja negra**: validación, permisos, filtros y valores límite | `node:test` + `fetch` | `backend/tests/caja-negra.test.js` | Incluido en 74 |
+| Compilación frontend | Transformación y bundle de producción | Vite | `npm run build` | Correcto en la verificación actual |
+| Aceptación visual | Bandeja inferior, banner y detalle responsive | Manual | [Etapa 4](04-release-mantenimiento.md#42-pruebas-de-aceptación-uat) | Escenarios documentados |
 
-Cada archivo de prueba levanta la API en un puerto libre sobre una base **SQLite en memoria** creada desde `schema.sql`, por lo que las pruebas son aisladas, repetibles y no tocan la base real.
+Las suites levantan la API sobre una base **SQLite en memoria** creada desde `schema.sql`, por lo que son aisladas y no tocan la base real. El checkout actual no contiene una suite automatizada de Playwright.
 
 ### 3.3.2 Casos de caja blanca
 
@@ -273,12 +279,13 @@ Complejidad ciclomática del middleware: V(G) = 3 (2 decisiones + 1), es decir, 
 | CB-10b | `CHECK` de la base | Inserción directa fuera de la región | Coordenadas de Posadas | Excepción CHECK | ✔ |
 | CB-10c | Consultas parametrizadas | Intento de inyección SQL | Título `x'); DROP TABLE ALERTA; --` | 201, texto literal, tabla intacta | ✔ |
 | CB-11 | Bus de eventos | Emisión tras el alta | POST válido | El bus recibe `alerta:creada` con el mismo id | ✔ |
-| CB-12 | Suscripción SSE | Alta, entrega y baja del suscriptor | Conexión a `/api/eventos` + POST + desconexión | 200 `text/event-stream`; evento recibido; suscriptores vuelven al valor inicial | ✔ |
+| CB-12 | Suscripción SSE | Alta, entrega y baja de eventos | Conexión a `/api/eventos`, emisión de alerta y condiciones, desconexión | Se reciben los eventos y se eliminan ambas suscripciones al cerrar | ✔ |
 | CB-12b | Suscripción | Operación rechazada | PATCH con 403 | Ningún evento emitido | ✔ |
 | CB-13 | `validarAlerta()` | Todas las ramas | Válida, vacía, descripción no texto, latitud booleana, descripción nula | Mensajes por rama | ✔ |
-| CB-14 | `ejecutarIngesta()` | Deduplicación y emisión de eventos | Ejecución doble consecutiva | Primera inserta y emite `alerta:creada`; segunda omite duplicadas | ✔ |
+| ING-01 | `sincronizarOpenMeteo()` | Consulta exitosa | Respuesta Open-Meteo simulada | Emite condiciones, actualiza `/api/condiciones` y no crea filas en `ALERTA` | ✔ |
+| ING-02 | `listarAlertas()` | Compatibilidad con datos previos | Registro legado `Alerta Automática Open-Meteo (...)` | Se conserva en SQLite, pero no aparece en el listado del mapa | ✔ |
 
-> **Sobre la "validación de suscripciones":** en geoAlerts las suscripciones son las de los navegadores al canal de eventos en tiempo real. Se valida su ciclo de vida completo: la suscripción se registra al conectar (CB-12), recibe los eventos (CB-11, CB-12, CB-14), no recibe eventos de operaciones fallidas (CB-12b) y se elimina al desconectar, sin fugas de memoria (CB-12).
+> **Sobre la validación de suscripciones:** se prueba el ciclo completo de SSE para alertas y condiciones: alta de listeners, entrega de eventos, rechazo de operaciones no autorizadas y baja al desconectar.
 
 ### 3.3.3 Casos de caja negra
 
@@ -296,7 +303,7 @@ Complejidad ciclomática del middleware: V(G) = 3 (2 decisiones + 1), es decir, 
 | Id de alerta | entero ≥ 1 existente | inexistente · no numérico · 0 |
 | Filtros | valores del dominio | valor fuera del dominio |
 | Estado | ACTIVA, FINALIZADA | otro valor |
-| Endpoint ingesta | token con rol `SUPERADMIN` | sin token · token de `ADMINISTRADOR` |
+| Condiciones actuales | respuesta válida de Open-Meteo | respuesta incompleta o error de red |
 
 **Análisis de valores límite**
 
@@ -322,45 +329,43 @@ Complejidad ciclomática del middleware: V(G) = 3 (2 decisiones + 1), es decir, 
 | CN-08 | Consulta | sin filtros · `gravedad=ROJO` · `estado=FINALIZADA` · `tipo=OLEAJE&gravedad=NARANJA` · `tipo=NIEVE` | — | 200 · 200 · 200 · 200 · 400 | ✔ |
 | CN-08 | Detalle | id 1 · 99999 · `abc` · 0 · ruta inexistente | — | 200 · 404 · 400 · 400 · 404 | ✔ |
 | CN-09 | Estado | `FINALIZADA` · `BORRADA` · alerta inexistente | — | 200 · 400 · 404 | ✔ |
-| CN-10 | Forzar ingesta | sin token · admin común · `SUPERADMIN` | Inv. · Inv. · Vál. | 401 · 403 · 200 | ✔ |
+| ING-01 | Sincronización | respuesta con datos válidos | Snapshot publicado por SSE; sin inserción en `ALERTA` | ✔ |
+| ING-02 | Condiciones | consulta a `/api/condiciones` luego de sincronizar | 200 con la última lectura disponible | ✔ |
 
-### 3.3.4 Prueba extremo a extremo (E2E-01)
+### 3.3.4 Validación visual de la interfaz
 
-Ejecutada en **Chromium** (Playwright 1.56) contra el backend sirviendo el frontend compilado, sobre una base nueva con los usuarios de demostración:
+El repositorio actual no contiene automatización E2E con Playwright. La siguiente lista describe los recorridos manuales de aceptación para la interfaz actual; no forma parte de las 74 pruebas automatizadas:
 
-| Paso | Acción | Verificación | Resultado |
-| --- | --- | --- | --- |
-| 1 | Abrir el mapa | Indicador "Actualización en vivo"; contador en 8 alertas activas | ✔ |
-| 2 | Filtrar gravedad ROJO | Contador en 1; transición suave de vista | ✔ |
-| 3 | Abrir un segundo navegador como Usuario público | Suscripto a eventos | ✔ |
-| 4 | Iniciar sesión como `tigre` | Se muestra "Defensa Civil Tigre (demo)" | ✔ |
-| 5 | Clic fuera de la región | Aviso "debe estar dentro de la región de cobertura" | ✔ |
-| 6 | Publicar una alerta de sudestada en el centro de la región | "Alerta publicada correctamente" | ✔ |
-| 7 | Observar el segundo navegador sin recargar | El contador pasa de 8 a 9 por el evento SSE | ✔ |
-| — | Consola del navegador | Sin errores de JavaScript | ✔ |
+| Paso | Acción | Verificación |
+| --- | --- | --- |
+| 1 | Abrir la aplicación con el backend activo | Se ve el banner meteorológico cuando hay un snapshot y el mapa queda despejado de controles laterales |
+| 2 | Abrir “Explorar el mapa” | La bandeja inferior muestra filtros, acceso administrativo y alertas disponibles |
+| 3 | Seleccionar un marcador | El mapa enfoca la alerta y se abre el detalle lateral |
+| 4 | Cambiar el tamaño de ventana a móvil | El detalle pasa a drawer inferior; la bandeja sigue siendo plegable |
+| 5 | Iniciar sesión y publicar una alerta | El formulario está en la bandeja; el marcador aparece al recibir SSE |
+| 6 | Ejecutar `GET /api/forzar-ingesta` | Se actualiza el banner, sin crear una alerta ni un marcador |
 
 ### 3.3.5 Resultados
 
-Ejecución de cierre `v1.1.0` (05/11/2026) con Node.js 22.22 (`npm run test:cobertura`):
+Verificación del checkout actualizado (15/11/2026), Node.js 22.22:
 
 ```text
-ℹ tests 75
+ℹ tests 74
 ℹ suites 15
-ℹ pass 75
+ℹ pass 74
 ℹ fail 0
 ```
 
 | Archivo | Líneas | Ramas | Funciones | Observación |
 | --- | --- | --- | --- | --- |
 | `compartido/dominio.js` | 100 % | 100 % | 100 % | |
-| `backend/auth.js` | 100 % | 87,5 % | 100 % | |
-| `backend/db.js` | 97,7 % | 69,6 % | 85,7 % | No cubierto: `listarOrigenes` y `cerrar`, que se ejercitan en el uso real y el apagado |
-| `backend/ingesta.js` | 91,4 % | 82,0 % | 90,0 % | Cubre consulta externa, fallback, deduplicación y emisión de eventos |
-| `backend/server.js` | 88,5 % | 82,1 % | 65,0 % | No cubierto: arranque y apagado del proceso, servido de archivos estáticos y ramas 413/500 |
-| `backend/eventos.js` | 80,8 % | 50 % | 0 % | El suscriptor de auditoría se desactiva a propósito durante las pruebas |
-| **Total** | **95,8 %** | **89,9 %** | **90,1 %** | Supera el objetivo de RNF-12 (85 % de líneas) |
+| `backend/auth.js` | 100 % | 87,50 % | 100 % | |
+| `backend/db.js` | 97,71 % | 69,57 % | 85,71 % | |
+| `backend/services/ingesta.js` | 74,55 % | 50,00 % | 66,67 % | La cobertura no ejecuta el scheduler ni los caminos de error de red |
+| `backend/server.js` | 86,21 % | 82,09 % | 60,87 % | |
+| **Total** | **94,72 %** | **89,69 %** | **89,19 %** | Incluye backend, módulo compartido y pruebas |
 
-Además: `npm run typecheck` → 0 errores; `npm run build` → frontend compilado sin advertencias.
+Además: `npm run typecheck` → 0 errores; `npm run build` → bundle de producción generado correctamente.
 
 ---
 
@@ -399,7 +404,7 @@ SQLite guarda los datos en un **archivo**, por lo que el entorno debe ofrecer **
    curl https://<dominio>/api/salud          # {"estado":"ok","version":"1.1.0"}
    docker compose -f infra/docker-compose.yml ps   # estado "healthy"
    ```
-   Abrir el sitio, iniciar sesión con el superadministrador, probar la sincronización externa y publicar una alerta de prueba; finalizarla.
+   Abrir el sitio, verificar el banner de Open-Meteo y publicar una alerta de prueba desde la bandeja inferior; finalizarla. Las condiciones externas no deben crear una alerta.
 6. **Programar respaldos diarios** (cron del servidor):
    ```bash
    0 3 * * * docker compose -f /ruta/geoAlerts/infra/docker-compose.yml exec -T geoalerts node backend/scripts/backup.js
@@ -413,7 +418,7 @@ SQLite guarda los datos en un **archivo**, por lo que el entorno debe ofrecer **
 - [x] HTTPS activo y redirección desde HTTP (Caddy).
 - [x] Volumen `/data` persistente y respaldo diario programado.
 - [x] `/api/salud` responde 200 y el contenedor figura como `healthy`.
-- [x] Tarea `node-cron` de ingesta automática operativa y verificada.
+- [x] Tarea `node-cron` consultando Open-Meteo al iniciar y cada 15 minutos; el banner refleja el último snapshot.
 - [x] Atribución de OpenStreetMap visible en el mapa.
 - [x] Leyenda "complementa y no reemplaza a los canales oficiales" visible.
 - [x] Etiqueta `v1.1.0` creada en el repositorio.

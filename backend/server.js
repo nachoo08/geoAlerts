@@ -16,6 +16,7 @@
  *   GET   /api/alertas               200 · 400 (filtro inválido)
  *   GET   /api/alertas/:id           200 · 400 (id inválido) · 404
  *   GET   /api/origenes              200
+ *   GET   /api/condiciones           200 (última lectura de Open-Meteo)
  *   GET   /api/eventos  (SSE)        200 (flujo text/event-stream)
  *   POST  /api/alertas               201 · 400 · 401 · 403 · 500
  *   PATCH /api/alertas/:id/estado    200 · 400 · 401 · 403 · 404
@@ -32,6 +33,9 @@ import {
 import * as repo from './db.js';
 import { bus } from './eventos.js';
 import { requiereAuth, verificarCredenciales, firmarToken } from './auth.js';
+import {
+  sincronizarOpenMeteo, iniciarIngestaAutomatica, obtenerCondicionesActuales,
+} from './services/ingesta.js';
 
 /** @typedef {import('@geoalerts/compartido').UsuarioSesion} UsuarioSesion */
 
@@ -119,6 +123,18 @@ export function crearApp() {
     res.status(200).json(repo.listarOrigenes());
   });
 
+  app.get('/api/condiciones', (_req, res) => {
+    res.status(200).json({ condiciones: obtenerCondicionesActuales() });
+  });
+
+  app.get('/api/forzar-ingesta', async (_req, res) => {
+    const resultado = await sincronizarOpenMeteo();
+    res.status(resultado.success ? 200 : 502).json({
+      mensaje: 'Ejecución de ingesta Open-Meteo finalizada',
+      resultado,
+    });
+  });
+
   // -------------------------------------------------------------------
   // Canal de eventos en tiempo real (Server-Sent Events)
   // -------------------------------------------------------------------
@@ -137,8 +153,10 @@ export function crearApp() {
     };
     const alCrear = reenviar(EVENTOS.ALERTA_CREADA);
     const alActualizar = reenviar(EVENTOS.ALERTA_ACTUALIZADA);
+    const alActualizarCondiciones = reenviar(EVENTOS.CONDICIONES_ACTUALIZADAS);
     bus.on(EVENTOS.ALERTA_CREADA, alCrear);
     bus.on(EVENTOS.ALERTA_ACTUALIZADA, alActualizar);
+    bus.on(EVENTOS.CONDICIONES_ACTUALIZADAS, alActualizarCondiciones);
 
     // Comentario SSE periódico: mantiene viva la conexión a través de proxies
     const latido = setInterval(() => res.write(': latido\n\n'), LATIDO_SSE_MS);
@@ -148,6 +166,7 @@ export function crearApp() {
       clearInterval(latido);
       bus.off(EVENTOS.ALERTA_CREADA, alCrear);
       bus.off(EVENTOS.ALERTA_ACTUALIZADA, alActualizar);
+      bus.off(EVENTOS.CONDICIONES_ACTUALIZADAS, alActualizarCondiciones);
     });
   });
 
@@ -281,11 +300,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const servidor = crearApp().listen(PORT, () => {
     console.log(`[geoAlerts] API escuchando en http://localhost:${PORT}`);
   });
+  const tareaIngesta = iniciarIngestaAutomatica();
+  void sincronizarOpenMeteo();
 
   /** Apagado ordenado ante SIGINT/SIGTERM (eventos del sistema operativo). @param {string} senal */
   const apagar = (senal) => {
     console.log(`[geoAlerts] ${senal} recibido: cerrando conexiones…`);
     servidor.close(() => {
+      tareaIngesta.stop();
       repo.cerrar();
       process.exit(0);
     });

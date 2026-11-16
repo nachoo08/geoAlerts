@@ -3,6 +3,8 @@
 > **Proyecto:** geoAlerts · **Versión del documento:** 1.1.0 · **Fecha:** 14/11/2026
 > **Navegación:** [Índice](../README.md) · **Etapa 1** · [Etapa 2](02-diseno-arquitectura.md) · [Etapa 3](03-implementacion-testing.md) · [Etapa 4](04-release-mantenimiento.md)
 
+> **Actualización al cierre (15/11/2026):** esta etapa conserva el análisis inicial y sus alternativas. La implementación final consulta las condiciones actuales de Open-Meteo al iniciar y cada 15 minutos, las publica en un banner superior y no las registra como alertas. El acceso a filtros, administración y listado está en una bandeja inferior plegable; el detalle de las alertas usa un panel lateral (drawer inferior en móviles). Las secciones de fuentes, alcance y DFD reflejan este ajuste.
+
 ## Contenido
 
 1. [Reconocimiento del problema y objetivos](#11-reconocimiento-del-problema-y-objetivos)
@@ -49,7 +51,7 @@ Desarrollar un sistema web que **centralice, registre y muestre en tiempo real**
 | OE-4 | Permitir a organismos autenticados cargar y cerrar alertas | Alta completa en menos de 1 minuto |
 | OE-5 | Aislar la gestión por organismo | Ningún organismo puede modificar alertas de otro (respuesta 403) |
 | OE-6 | Conservar un historial consultable | Las alertas finalizadas se consultan con el filtro de estado |
-| OE-7 | Automatizar la ingesta de fuentes externas de datos abiertos | El worker programado consulta Open-Meteo y emite alertas sin intervención manual |
+| OE-7 | Consultar condiciones meteorológicas actuales de una fuente abierta | Open-Meteo se consulta al iniciar y cada 15 min; el resultado se muestra en el banner, sin crear alertas |
 
 ---
 
@@ -99,26 +101,27 @@ El sistema se representa como **un único proceso** rodeado por sus agentes exó
 flowchart LR
     U([Usuario<br/>público])
     A([Administrador<br/>de organismo])
-    SMN([SMN<br/>datos abiertos])
-    OM([Open-Meteo<br/>Marine API])
+    SMN([SMN<br/>integración futura])
+    OM([Open-Meteo<br/>Forecast API])
     OSM([OpenStreetMap<br/>servidor de teselas])
     S(("0<br/>Sistema<br/>geoAlerts"))
 
     U -- "filtros de consulta" --> S
     S -- "mapa, alertas, detalle,<br/>eventos en tiempo real" --> U
-    A -- "credenciales, alertas nuevas,<br/>cambios de estado, forzar ingesta" --> S
+    A -- "credenciales, alertas nuevas,<br/>cambios de estado" --> S
     S -- "token de sesión, confirmaciones,<br/>códigos de error" --> A
-    SMN -- "alertas oficiales (JSON)" --> S
-    OM -- "altura de ola (JSON)" --> S
+    SMN -. "integración futura; no activa" .-> S
+    OM -- "condiciones actuales (JSON)" --> S
+    S -- "banner de condiciones actuales" --> U
     OSM -- "teselas de mapa base (PNG)" --> U
 ```
 
 | Agente exógeno | Tipo | Flujos de entrada al sistema | Flujos de salida del sistema |
 | --- | --- | --- | --- |
 | Usuario | Persona (anónima) | Filtros de consulta | Mapa, listado y detalle de alertas; eventos en tiempo real |
-| Administrador | Persona autenticada de un organismo | Credenciales; datos de alerta; cambios de estado; ejecución manual de ingesta (`SUPERADMIN`) | Token JWT; alerta creada o actualizada; códigos HTTP de error |
-| SMN (datos abiertos) | Sistema externo | Alertas oficiales por zona | — |
-| Open-Meteo Marine API | Sistema externo | Pronóstico de altura de ola | — |
+| Administrador | Persona autenticada de un organismo | Credenciales; datos de alerta; cambios de estado | Token JWT; alerta creada o actualizada; códigos HTTP de error |
+| SMN (datos abiertos) | Sistema externo previsto | — (origen de datos de ejemplo; sin conector activo) | — |
+| Open-Meteo Forecast API | Sistema externo | Temperatura, código meteorológico y velocidad del viento actuales | — |
 | OpenStreetMap | Sistema externo | — (entrega teselas directamente al navegador del Usuario) | — |
 
 **Límites del sistema.** *Dentro:* recepción, validación, almacenamiento, ingesta automática, consulta, difusión en tiempo real y presentación de alertas; autenticación y autorización por organismo. *Fuera:* la producción del pronóstico (la realizan los organismos oficiales), la cartografía base, la difusión por canales externos (SMS, radio) y la administración del servidor.
@@ -129,11 +132,11 @@ flowchart LR
 flowchart TB
     U([Usuario])
     A([Administrador])
-    EXT([SMN / Open-Meteo])
+    EXT([Open-Meteo Forecast API])
 
     P1["1.0<br/>Autenticar<br/>administrador"]
     P2["2.0<br/>Registrar alerta<br/>manual"]
-    P3["3.0<br/>Ingerir alertas<br/>externas (cron / manual)"]
+    P3["3.0<br/>Actualizar condiciones<br/>actuales (inicio / cron)"]
     P4["4.0<br/>Consultar y<br/>filtrar alertas"]
     P5["5.0<br/>Gestionar estado<br/>de alerta"]
     P6["6.0<br/>Difundir eventos<br/>en tiempo real"]
@@ -151,10 +154,9 @@ flowchart TB
     P2 -- "alerta nueva" --> D2
     P2 -- "evento alerta:creada" --> P6
 
-    EXT -- "alertas / altura ola JSON" --> P3
-    A -- "POST /api/forzar-ingesta" --> P3
-    P3 -- "normaliza e inserta" --> D2
-    P3 -- "evento alerta:creada" --> P6
+    EXT -- "condiciones actuales JSON" --> P3
+    P3 -- "caché en memoria" --> P4
+    P3 -- "evento condiciones:actualizadas" --> P6
 
     U -- filtros --> P4
     P4 -- "consulta" --> D2
@@ -171,7 +173,7 @@ flowchart TB
 | --- | --- | --- | --- |
 | 1.0 Autenticar administrador | Verifica credenciales con bcrypt y emite un token JWT de 8 h | D3 | Implementado |
 | 2.0 Registrar alerta manual | Valida datos y región, fija el organismo e inserta en una transacción | D1, D2 | Implementado |
-| 3.0 Ingerir alertas externas | Tarea programada (`node-cron`) y endpoint manual que consultan Open-Meteo Marine API, normalizan al formato interno e insertan con `tipo_fuente = API_EXTERNA` | D1, D2 | **Implementado en v1.1** (con respaldo de datos realistas ante indisponibilidad de red; conector SMN preparado) |
+| 3.0 Actualizar condiciones actuales | Consulta al iniciar y cada 15 min a Open-Meteo Forecast API; conserva la última respuesta en memoria y emite `condiciones:actualizadas`, sin insertar en `ALERTA` | Caché en memoria; — | **Implementado**; `GET /api/condiciones` devuelve la última lectura |
 | 4.0 Consultar y filtrar | Lista alertas por tipo, gravedad y estado | D1, D2 | Implementado |
 | 5.0 Gestionar estado | Activa o finaliza una alerta respetando el aislamiento por organismo | D2 | Implementado |
 | 6.0 Difundir eventos | Reenvía cada evento de dominio a los navegadores suscriptos (Server-Sent Events) | — | Implementado |
@@ -194,9 +196,9 @@ flowchart TB
 ### Flujos de información relevados
 
 1. **Ingreso manual.** El Administrador de un organismo se autentica, completa el formulario, marca la ubicación en el mapa y publica. La alerta queda asociada a su organismo (`CARGA_MANUAL`).
-2. **Ingreso por API externa (implementado en v1.1).** Un proceso programado con `node-cron` (y ejecutable bajo demanda vía `POST /api/forzar-ingesta`) consulta fuentes de datos abiertos (Open-Meteo Marine API), transforma la respuesta y registra la alerta con origen `API_EXTERNA` sin duplicar avisos activos previos.
+2. **Consulta de condiciones actuales.** El backend consulta Open-Meteo Forecast API al iniciar y cada 15 minutos; mantiene la última lectura en memoria y la presenta en un banner independiente. No crea alertas, no genera marcadores y no persiste estas condiciones en SQLite. `GET /api/forzar-ingesta` permite solicitar una consulta manual.
 3. **Consulta.** El Usuario abre el mapa, filtra y consulta el detalle.
-4. **Difusión.** Cada alta (manual o automática) o cambio de estado se reenvía al instante a todos los navegadores conectados mediante el bus de eventos y SSE.
+4. **Difusión.** Cada alta manual o cambio de estado se reenvía mediante `alerta:creada` / `alerta:actualizada`; las condiciones actuales se difunden por `condiciones:actualizadas`. Todos usan SSE, pero los datos meteorológicos no integran el listado de alertas.
 5. **Cierre.** Cuando el fenómeno termina, el organismo dueño (o el proceso de sincronización externa) marca la alerta como `FINALIZADA`; sale de la vista por defecto pero se conserva en el historial.
 
 ### Fuentes de datos
@@ -204,8 +206,8 @@ flowchart TB
 | Fuente | Tipo | Datos que aporta | Licencia / condición de uso | Uso en v1.1 |
 | --- | --- | --- | --- | --- |
 | Organismos operadores (Defensa Civil, municipios) | Carga manual | Avisos locales georreferenciados | Responsabilidad del organismo que publica | Activo |
-| Open-Meteo Marine API | API externa | Altura y período de ola en puntos costeros (Mar del Plata, Necochea, Bahía Blanca, Partido de la Costa) | Uso no comercial gratuito según sus términos | **Activo** (ingesta automática cada 30 min + endpoint manual) |
-| SMN — datos abiertos | API externa | Alertas oficiales por zona | Datos abiertos del Estado nacional | Registrado como origen; estructura lista en `ingesta.js` |
+| Open-Meteo Forecast API | API externa | Condiciones actuales en CABA: temperatura, código meteorológico y viento | Consultar los términos vigentes del proveedor | **Activo** (al iniciar y cada 15 min; banner, no alerta) |
+| SMN — datos abiertos | API externa | Alertas oficiales por zona | Datos abiertos del Estado nacional | Origen de datos de ejemplo; ingesta automática no implementada |
 | OpenStreetMap | Teselas de mapa base | Cartografía | ODbL (atribución obligatoria) | Activo |
 
 ### Estructura de datos inicial (planilla relevada)
@@ -340,12 +342,12 @@ Valor hora de referencia: **$15.000 ARS** (supuesto para un perfil semi-senior; 
 | Norma o licencia | Alcance | Cumplimiento en geoAlerts |
 | --- | --- | --- |
 | **Ley 25.326** de Protección de Datos Personales | Tratamiento de datos de personas | El Usuario es anónimo: no se piden datos ni se usan cookies de seguimiento. De los administradores solo se guarda el nombre de usuario y el **hash** de la contraseña (principios de finalidad, minimización y seguridad) |
-| **Ley 27.275** de Acceso a la Información Pública y **Decreto 117/2016** (Plan de Apertura de Datos) | Reutilización de datos publicados por el Estado | Solo se usan datos publicados como abiertos, citando la fuente en cada alerta |
+| **Ley 27.275** de Acceso a la Información Pública y **Decreto 117/2016** (Plan de Apertura de Datos) | Reutilización de datos publicados por el Estado | Se contempla el uso de fuentes abiertas; las alertas atribuidas al SMN en la base son ejemplos y el conector no está implementado |
 | **Ley 11.723** de Propiedad Intelectual (software incluido por Ley 25.036) | Titularidad del código | El código propio se publica con licencia MIT; la titularidad se define en el contrato (sección 1.8) |
 | **ODbL** (OpenStreetMap) | Uso de la cartografía | Atribución "© OpenStreetMap contributors" visible en el mapa |
 | Licencias MIT, BSD y Apache de las dependencias; SQLite en dominio público | Uso, modificación y redistribución | Permiten uso comercial y académico sin costo |
 | Licencia Hippocratic 2.1 (react-leaflet) | Uso de la integración React–Leaflet | Permite el uso libre con condiciones éticas (respeto de los derechos humanos), compatibles con el propósito del sistema. Si un cliente exigiera solo licencias aprobadas por la OSI, se reemplaza por el uso directo de Leaflet |
-| Términos de uso de Open-Meteo | Uso de su API | Uso no comercial gratuito activo para datos marítimos; un uso comercial requiere plan pago |
+| Términos de uso de Open-Meteo | Uso de su API | Verificar los términos vigentes del proveedor para el uso y despliegue previstos |
 | Responsabilidad sobre la información | Alertas de terceros | La interfaz aclara que geoAlerts **complementa y no reemplaza** a los canales oficiales; cada alerta muestra su organismo de origen |
 
 **Resultado:** factible.
@@ -354,11 +356,11 @@ Valor hora de referencia: **$15.000 ARS** (supuesto para un perfil semi-senior; 
 
 ## 1.7 O.L.A. — Objetivos, Límites y Alcances
 
-**Objetivo.** Centralizar y difundir en tiempo real, sobre un mapa, las alertas meteorológicas y marítimas de Buenos Aires y su franja costera, con publicación controlada por organismos autorizados e ingesta automática de datos marítimos.
+**Objetivo.** Centralizar y difundir en tiempo real, sobre un mapa, las alertas meteorológicas y marítimas de Buenos Aires y su franja costera, con publicación controlada por organismos autorizados y un banner separado de condiciones actuales.
 
 **Límites (dónde empieza y dónde termina el sistema).**
 
-- *Comienza* cuando un Administrador publica una alerta o cuando el worker automático la ingiere desde Open-Meteo Marine API.
+- *Comienza* cuando un Administrador publica una alerta o cuando el backend consulta Open-Meteo para actualizar el banner.
 - *Termina* cuando la alerta se muestra en el mapa del Usuario y, al cerrarse, queda en el historial.
 
 **Alcances.**
@@ -369,7 +371,7 @@ Valor hora de referencia: **$15.000 ARS** (supuesto para un perfil semi-senior; 
 | Filtros por tipo, gravedad y estado (historial) | Notificaciones push, SMS o correo |
 | Detalle con organismo de origen y fechas | Aplicación móvil nativa |
 | Actualización en tiempo real (SSE) | Ingesta automática oficial de SMN (previsto v1.2) |
-| Ingesta automática periódica de oleaje (Open-Meteo + `node-cron`) y ejecución manual | Alta de usuarios desde la interfaz (se hace por configuración) |
+| Banner de condiciones actuales de Open-Meteo (inicio + cada 15 min; no genera alertas) | Ingesta automática de alertas oficiales del SMN |
 | Inicio y cierre de sesión de administradores | Polígonos de zonas afectadas (requiere PostGIS) |
 | Alta manual con ubicación en el mapa, validada a la región | Cobertura fuera de Buenos Aires |
 | Cambio de estado con aislamiento por organismo | Alta disponibilidad multi-servidor |

@@ -2,7 +2,7 @@
 
 **Monitoreo, registro y visualización en tiempo real de alertas meteorológicas y marítimas de Buenos Aires y su franja costera.**
 
-Vientos, tormentas, sudestadas y oleaje sobre un mapa interactivo: el público consulta sin registrarse y cada organismo autorizado publica y gestiona **solo sus propias alertas**, que llegan al instante a todos los navegadores abiertos. Además, el sistema incorpora un servicio autónomo de ingesta periódica desde APIs meteorológicas externas.
+Vientos, tormentas, sudestadas y oleaje sobre un mapa interactivo: el público consulta sin registrarse y cada organismo autorizado publica y gestiona **solo sus propias alertas**, que llegan al instante a todos los navegadores abiertos. Las condiciones actuales de Open-Meteo se muestran en un banner independiente; no se convierten en alertas oficiales ni en marcadores del mapa.
 
 ---
 
@@ -10,10 +10,10 @@ Vientos, tormentas, sudestadas y oleaje sobre un mapa interactivo: el público c
 
 | Etapa | Documento | Contenido |
 | --- | --- | --- |
-| 1 | [Análisis y Factibilidad](docs/01-analisis-factibilidad.md) | Problema y objetivos · alcance geográfico y microclimas · DFD Nivel 0 y 1 · relevamiento · estudio de mercado · factividades (FODA cruzado, técnica, económica, legal) · O.L.A. · propuesta y contrato · Gantt (1.9 Planificación Estratégica 19/09/2026 - 14/11/2026), Curva S y riesgos |
-| 2 | [Diseño y Arquitectura](docs/02-diseno-arquitectura.md) | Elección tecnológica · DER, modelo relacional, diccionario y 3FN · RF-01 a RF-12 y RNF ISO/IEC 25010 · casos de uso · diagrama de clases · DSS orientado a eventos y glosario HTTP · arquitectura en 3 capas y aislamiento multiempresa · matriz de trazabilidad SQA |
-| 3 | [Implementación, Construcción y Testing](docs/03-implementacion-testing.md) | Entorno y estructura · estándares de código, tipado, transacciones y consultas parametrizadas · ingesta automática (`node-cron`) · animaciones Leaflet (`flyTo` / `fitBounds`) · caja blanca, caja negra y E2E · puesta en producción |
-| 4 | [Release, Mantenimiento y Cierre](docs/04-release-mantenimiento.md) | Notas de versión v1.1.0 · UAT y compatibilidad de navegadores · plan de reversión · manuales de Usuario y Administrador · FAQ · plan de mantenimiento · glosario y trabajo futuro |
+| 1 | [Análisis y Factibilidad](docs/01-analisis-factibilidad.md) | Problema, alcance y microclimas · DFD · fuentes y factibilidad · alcance final actualizado para condiciones Open-Meteo y presentación en banner |
+| 2 | [Diseño y Arquitectura](docs/02-diseno-arquitectura.md) | DER y modelo de datos · requisitos y casos de uso · eventos SSE · panel de detalle, bandeja inferior y endpoint de condiciones |
+| 3 | [Implementación, Construcción y Testing](docs/03-implementacion-testing.md) | Estructura real · ingesta cada 15 min y caché en memoria · interfaz React/Leaflet · pruebas y resultados verificados |
+| 4 | [Release, Mantenimiento y Cierre](docs/04-release-mantenimiento.md) | Manual actualizado · UAT · reversión · mantenimiento · alcance real del release y trabajo futuro |
 
 Historial de cambios: [CHANGELOG.md](CHANGELOG.md).
 
@@ -26,26 +26,30 @@ flowchart LR
     end
     subgraph Lógica
         E["Node.js + Express<br/>API REST + eventos SSE"]
-        CRON["Ingesta Automática<br/>node-cron + Open-Meteo"]
+        CRON["Condiciones actuales<br/>inicio + cada 15 min"]
     end
     subgraph Datos
         S[("SQLite")]
     end
-    C["compartido/<br/>reglas de dominio"]
+    C["compartido/<br/>reglas de dominio y eventos"]
+    OM[("Open-Meteo Forecast API")]
     CRON --> E
+    E -- "consulta current" --> OM
+    E -- "caché en memoria /api/condiciones" --> R
     R -- "HTTP/JSON" --> E
     E -- "text/event-stream" --> R
+    CRON -- "evento condiciones:actualizadas" --> E
     E --> S
-    CRON --> S
     R -.-> C
     E -.-> C
 ```
 
-## Novedades v1.1.0
+## Interfaz e ingesta actuales
 
-- **Ingesta Automática:** Servicio en segundo plano con `node-cron` que sincroniza periódicamente datos desde la API de Open-Meteo.
-- **Navegación Dinámica:** Centrado automático con animaciones `flyTo` al seleccionar alertas y encuadre `fitBounds` al aplicar filtros.
-- **Endpoint de Test:** `GET /api/forzar-ingesta` para pruebas y demostración manual en vivo.
+- Los marcadores abren un panel lateral con el detalle de la alerta; en móviles se presenta como drawer inferior.
+- Filtros, acceso administrativo, publicación y lista de alertas están en una bandeja inferior plegable “Explorar el mapa”.
+- El backend consulta condiciones actuales al iniciar y luego cada 15 minutos. El banner superior se actualiza por SSE y no añade alertas ni registros a SQLite.
+- `GET /api/condiciones` devuelve la última lectura disponible; `GET /api/forzar-ingesta` permite solicitar una consulta manual.
 
 ## Inicio rápido
 
@@ -53,7 +57,7 @@ Requisitos: **Node.js 20 o superior**.
 
 ```bash
 npm install        # instala backend, frontend y módulo compartido
-npm run dev:backend    # API en http://localhost:3001 (crea la base con datos de prueba e ingesta)
+npm run dev:backend    # API en http://localhost:3001 (crea la base y consulta condiciones actuales)
 npm run dev:frontend   # en otra terminal → http://localhost:5173
 ```
 
@@ -68,7 +72,7 @@ Los usuarios de demostración no se crean en producción.
 ### Otros comandos
 
 ```bash
-npm test                # 72 pruebas de caja blanca y caja negra
+npm test                # 74 pruebas de caja blanca y caja negra
 npm run test:cobertura # pruebas + informe de cobertura
 npm run typecheck      # verificación de tipos TypeScript (strict)
 npm run build          # compila el frontend
@@ -94,8 +98,9 @@ Detalle en la [Etapa 3, sección 3.4](docs/03-implementacion-testing.md#34-puest
 | GET | `/api/alertas?tipo=&gravedad=&estado=` | Público | 200 · 400 |
 | GET | `/api/alertas/:id` | Público | 200 · 400 · 404 |
 | GET | `/api/origenes` | Público | 200 |
+| GET | `/api/condiciones` | Público | 200 (puede devolver null antes de la primera lectura) |
 | GET | `/api/eventos` | Público (SSE) | 200 `text/event-stream` |
-| GET | `/api/forzar-ingesta` | Público / Admin | 200 · 500 |
+| GET | `/api/forzar-ingesta` | Público | 200 · 502 |
 | POST | `/api/alertas` | Token Bearer | 201 · 400 · 401 · 403 · 500 |
 | PATCH | `/api/alertas/:id/estado` | Token Bearer | 200 · 400 · 401 · 403 · 404 |
 
@@ -107,7 +112,7 @@ Glosario completo de códigos en la [Etapa 2, sección 2.4.5](docs/02-diseno-arq
 geoAlerts/
 ├── compartido/   reglas de dominio comunes (región, validación, permisos, tipos)
 ├── backend/      schema.sql · db.js · auth.js · eventos.js · server.js · services/ingesta.js · tests/
-├── frontend/      React + Leaflet (App.jsx, Mapa.jsx, api.js) · e2e/
+├── frontend/     React + Leaflet (App.jsx, Mapa.jsx, PanelAlerta.jsx, api.js)
 ├── infra/        Dockerfile · docker-compose.yml · Caddyfile
 └── docs/          documentación de las Etapas 1 a 4
 ```

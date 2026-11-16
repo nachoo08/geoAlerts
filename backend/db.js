@@ -117,7 +117,9 @@ export function listarAlertas(filtros = {}) {
     ['a.estado', filtros.estado],
   ];
   const activas = columnas.filter(([, valor]) => valor);
-  const where = activas.length ? ` WHERE ${activas.map(([col]) => `${col} = ?`).join(' AND ')}` : '';
+  const where = ` WHERE a.titulo NOT LIKE 'Alerta Automática Open-Meteo (%'${activas.length
+    ? ` AND ${activas.map(([col]) => `${col} = ?`).join(' AND ')}`
+    : ''}`;
   const stmt = db.prepare(`${SELECT_ALERTA}${where} ORDER BY a.fecha_creacion DESC, a.id DESC`);
   return /** @type {Alerta[]} */ (stmt.all(...activas.map(([, valor]) => valor)));
 }

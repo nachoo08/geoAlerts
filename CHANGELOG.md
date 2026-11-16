@@ -5,11 +5,23 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y e
 
 ## [Sin publicar]
 
+### Agregado
+
+- Panel de detalle lateral para alertas, con drawer inferior en móviles.
+- Bandeja inferior plegable para filtros, administración y lista de alertas.
+- Banner de condiciones actuales de Open-Meteo con actualización SSE y endpoint `GET /api/condiciones`.
+
+### Cambiado
+
+- Open-Meteo consulta condiciones al iniciar el backend y cada 15 minutos; ya no crea alertas ni marcadores en el mapa.
+- Los registros automáticos históricos de Open-Meteo se conservan en SQLite, pero se excluyen del listado de alertas.
+- El evento SSE `condiciones:actualizadas` alimenta el banner, separado de los eventos de alertas.
+
 ### Planificado
 
-- Ingesta automática de alertas del SMN y de oleaje de Open-Meteo (v1.1).
-- Gestión de organismos y administradores desde la interfaz (v1.1).
-- Limitador de intentos de inicio de sesión (v1.0.x).
+- Gestión de organismos y administradores desde la interfaz (v1.2).
+- Ingesta de alertas oficiales del SMN (v1.2).
+- Limitador de intentos de inicio de sesión (v1.1.x).
 
 ## [1.0.0] — 2026-10-26
 
@@ -27,7 +39,7 @@ Primera versión pública (MVP).
 - Aislamiento multiempresa por organismo y rol de superadministrador.
 - Módulo `compartido` con las reglas de dominio comunes a backend y frontend.
 - Verificación de tipos estricta con TypeScript (`checkJs`).
-- 72 pruebas automatizadas de caja blanca y caja negra y una prueba E2E con Playwright.
+- 72 pruebas automatizadas de caja blanca y caja negra en el corte inicial v1.0.0 (el checkout actual contiene 74).
 - Imagen Docker, Docker Compose con Caddy (HTTPS) y script de respaldo en caliente.
 - Documentación de las Etapas 1 a 4 en Markdown.
 

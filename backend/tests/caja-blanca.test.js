@@ -15,6 +15,7 @@ import { iniciarServidor, pedir, login, ALERTA_VALIDA } from './ayudas.js';
 import { EVENTOS, validarAlerta, puedeGestionar } from '@geoalerts/compartido';
 import { bus } from '../eventos.js';
 import { db, crearAlerta } from '../db.js';
+import { sincronizarOpenMeteo } from '../services/ingesta.js';
 
 /** @type {import('./ayudas.js').Servidor} */
 let srv;
@@ -139,30 +140,36 @@ describe('Suscripciones a eventos (Programación Orientada a Eventos)', () => {
 
   test('CB-12 un suscriptor SSE recibe el evento y, al desconectarse, se da de baja (sin fugas)', async () => {
     const base = bus.listenerCount(EVENTOS.ALERTA_CREADA);
+    const baseCondiciones = bus.listenerCount(EVENTOS.CONDICIONES_ACTUALIZADAS);
     const corte = new AbortController();
     const res = await fetch(`${srv.base}/eventos`, { signal: corte.signal });
     assert.equal(res.status, 200);
     assert.match(res.headers.get('content-type') || '', /text\/event-stream/);
     assert.equal(bus.listenerCount(EVENTOS.ALERTA_CREADA), base + 1, 'suscripción registrada');
+    assert.equal(bus.listenerCount(EVENTOS.CONDICIONES_ACTUALIZADAS), baseCondiciones + 1, 'condiciones suscriptas');
 
     const lector = /** @type {ReadableStream<Uint8Array>} */ (res.body).getReader();
     const decodificador = new TextDecoder();
     await pedir(`${srv.base}/alertas`, { method: 'POST', token: tokens.admin, body: { ...ALERTA_VALIDA, titulo: 'Evento SSE' } });
+    bus.emit(EVENTOS.CONDICIONES_ACTUALIZADAS, { temperature_2m: 18, wind_speed_10m: 12 });
 
     let texto = '';
-    while (!texto.includes('Evento SSE')) {
+    while (!texto.includes('Evento SSE') || !texto.includes('event: condiciones:actualizadas')) {
       const { value, done } = await lector.read();
       if (done) break;
       texto += decodificador.decode(value);
     }
     assert.match(texto, /event: alerta:creada/);
     assert.match(texto, /"titulo":"Evento SSE"/);
+    assert.match(texto, /event: condiciones:actualizadas/);
 
     corte.abort();
-    for (let i = 0; i < 50 && bus.listenerCount(EVENTOS.ALERTA_CREADA) !== base; i++) {
+    for (let i = 0; i < 50 && (bus.listenerCount(EVENTOS.ALERTA_CREADA) !== base
+      || bus.listenerCount(EVENTOS.CONDICIONES_ACTUALIZADAS) !== baseCondiciones); i++) {
       await new Promise((r) => setTimeout(r, 20));
     }
     assert.equal(bus.listenerCount(EVENTOS.ALERTA_CREADA), base, 'suscripción eliminada');
+    assert.equal(bus.listenerCount(EVENTOS.CONDICIONES_ACTUALIZADAS), baseCondiciones, 'suscripción de condiciones eliminada');
   });
 
   test('CB-12b una operación rechazada (403) NO emite eventos', async () => {
@@ -172,6 +179,50 @@ describe('Suscripciones a eventos (Programación Orientada a Eventos)', () => {
     await pedir(`${srv.base}/alertas/1/estado`, { method: 'PATCH', token: tokens.tigre, body: { estado: 'FINALIZADA' } });
     bus.off(EVENTOS.ALERTA_ACTUALIZADA, espia);
     assert.equal(emitido, false);
+  });
+});
+
+describe('Ingesta de condiciones actuales', () => {
+  test('Open-Meteo emite condiciones sin crear una alerta persistente', async () => {
+    const fetchOriginal = globalThis.fetch;
+    const contarAlertas = () => /** @type {{n:number}} */ (db.prepare('SELECT COUNT(*) AS n FROM ALERTA').get()).n;
+    const antes = contarAlertas();
+    const recibido = new Promise((resolver) => bus.once(EVENTOS.CONDICIONES_ACTUALIZADAS, resolver));
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      current: { temperature_2m: 19, weather_code: 2, wind_speed_10m: 14, time: '2026-11-15T21:00' },
+    }), { headers: { 'Content-Type': 'application/json' } });
+
+    try {
+      const resultado = await sincronizarOpenMeteo();
+      assert.equal(resultado.success, true);
+      assert.equal('created' in resultado, false);
+      const condiciones = /** @type {{wind_speed_10m:number}} */ (await recibido);
+      assert.equal(condiciones.wind_speed_10m, 14);
+      assert.equal(contarAlertas(), antes);
+      globalThis.fetch = fetchOriginal;
+
+      const respuesta = await pedir(`${srv.base}/condiciones`);
+      assert.equal(respuesta.estado, 200);
+      assert.equal(respuesta.datos.condiciones.wind_speed_10m, 14);
+    } finally {
+      globalThis.fetch = fetchOriginal;
+    }
+  });
+
+  test('las alertas automáticas históricas no vuelven a mostrarse en el mapa', async () => {
+    const antigua = crearAlerta({
+      titulo: 'Alerta Automática Open-Meteo (19°C)',
+      tipo: 'VIENTO',
+      nivel_gravedad: 'AMARILLO',
+      descripcion: 'Registro legado de condiciones actuales',
+      latitud: -34.6037,
+      longitud: -58.3816,
+      id_origen: 4,
+    });
+    const respuesta = await pedir(`${srv.base}/alertas`);
+    assert.equal(respuesta.estado, 200);
+    const alertas = /** @type {Array<{id:number}>} */ (respuesta.datos);
+    assert.equal(alertas.some((alerta) => alerta.id === antigua.id), false);
   });
 });
 

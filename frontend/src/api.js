@@ -40,6 +40,7 @@ export const api = {
     return solicitud(`/alertas${qs ? `?${qs}` : ''}`);
   },
   listarOrigenes: () => solicitud('/origenes'),
+  obtenerCondiciones: () => solicitud('/condiciones'),
   login: (username, password) => solicitud('/login', { method: 'POST', body: { username, password } }),
   crearAlerta: (alerta, token) => solicitud('/alertas', { method: 'POST', body: alerta, token }),
   cambiarEstado: (id, estado, token) =>
