@@ -597,7 +597,7 @@ classDiagram
     ControladorAPI ..> RepositorioDB : persiste
     ControladorAPI ..> BusEventos : emite eventos
     ControladorAPI ..> ServicioCondiciones : lee snapshot / solicita actualización
-    ServicioCondiciones ..> BusEventos : emite condiciones:actualizadas
+    ServicioCondiciones ..> BusEventos : emite evento de condiciones actualizado
     Auth ..> RepositorioDB : busca usuario
     RepositorioDB --> Database : conexión única
     RepositorioDB ..> Alerta : devuelve
