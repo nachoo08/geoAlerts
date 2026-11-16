@@ -1,6 +1,6 @@
 # Etapa 1 — Análisis y Factibilidad
 
-> **Proyecto:** geoAlerts · **Versión del documento:** 1.1.0 · **Fecha:** 14/11/2026
+> **Proyecto:** geoAlerts · **Versión del documento:** 1.1.0 · **Fecha:** 21/11/2026
 > **Navegación:** [Índice](../README.md) · **Etapa 1** · [Etapa 2](02-diseno-arquitectura.md) · [Etapa 3](03-implementacion-testing.md) · [Etapa 4](04-release-mantenimiento.md)
 
 > **Actualización al cierre (15/11/2026):** esta etapa conserva el análisis inicial y sus alternativas. La implementación final consulta las condiciones actuales de Open-Meteo al iniciar y cada 15 minutos, las publica en un banner superior y no las registra como alertas. El acceso a filtros, administración y listado está en una bandeja inferior plegable; el detalle de las alertas usa un panel lateral (drawer inferior en móviles). Las secciones de fuentes, alcance y DFD reflejan este ajuste.
@@ -387,7 +387,7 @@ Valor hora de referencia: **$15.000 ARS** (supuesto para un perfil semi-senior; 
 | --- | --- |
 | Producto | geoAlerts v1.1.0 — sistema web de alertas meteorológicas y marítimas para Buenos Aires y su franja costera |
 | Entregables | Código fuente (repositorio Git), base de datos con datos de prueba, imagen Docker, documentación de Etapas 1 a 4, manuales de Usuario y Administrador |
-| Plazo | 8 semanas reales de ejecución (19/09/2026 al 14/11/2026) |
+| Plazo | 9 semanas reales de ejecución (19/09/2026 al 21/11/2026) |
 | Precio | $5.148.000 ARS (incluye contingencia del 10 %) |
 | Forma de pago | 30 % a la firma · 40 % al aprobar la Etapa 3 · 30 % al aprobar la UAT (Etapa 4) |
 | Garantía | 90 días de mantenimiento correctivo sin costo desde la puesta en producción |
@@ -400,7 +400,7 @@ Valor hora de referencia: **$15.000 ARS** (supuesto para un perfil semi-senior; 
 **Partes.** Entre [Equipo de desarrollo geoAlerts], en adelante "EL DESARROLLADOR", y [Organismo o cliente], en adelante "EL CLIENTE", se celebra el presente contrato sujeto a las siguientes cláusulas:
 
 1. **Objeto.** EL DESARROLLADOR se obliga a desarrollar e implementar el sistema geoAlerts conforme al alcance definido en el O.L.A. (sección 1.7) y los requerimientos de la Etapa 2.
-2. **Plazo.** 8 (ocho) semanas desde la firma (del 19/09/2026 al 14/11/2026), según el cronograma de la sección 1.9. Los atrasos causados por EL CLIENTE extienden el plazo en igual medida.
+2. **Plazo.** 9 (nueve) semanas desde la firma (del 19/09/2026 al 21/11/2026), según el cronograma actualizado de la sección 1.9. Los atrasos causados por EL CLIENTE extienden el plazo en igual medida.
 3. **Precio y forma de pago.** $5.148.000 ARS, pagaderos según los hitos de la propuesta.
 4. **Aceptación.** Cada hito se considera aceptado si EL CLIENTE no formula observaciones por escrito dentro de los 5 (cinco) días hábiles de su entrega. La aceptación final se da con la aprobación de la UAT.
 5. **Cambios de alcance.** Todo requerimiento nuevo se cotiza por separado mediante una solicitud de cambio firmada por ambas partes.
@@ -420,7 +420,7 @@ Firmas: ______________________ (EL DESARROLLADOR) · ______________________ (EL 
 
 ### Metodología: Scrumban (Scrum + Kanban)
 
-- **Scrum** marca el ritmo: 4 sprints intensivos de 2 semanas entre el 19/09/2026 y el 14/11/2026, con planificación, revisión (demo al cliente o docente) y retrospectiva.
+- **Scrum** marca el ritmo: tres sprints de 2 semanas y un sprint final extendido a 3 semanas, entre el 19/09/2026 y el 21/11/2026 (9 semanas en total), con planificación, revisión (demo al cliente o docente) y retrospectiva.
 - **Kanban** organiza el trabajo diario en un tablero (GitHub Projects) con columnas **Backlog → Por hacer → En curso → En revisión → Hecho** y un límite de 2 tareas *En curso* por persona.
 - **Roles:** Product Owner (prioriza el backlog), Scrum Master (facilita y remueve impedimentos), Equipo de desarrollo (2 personas full-stack).
 - **Definición de Hecho:** código revisado por *pull request*, verificación de tipos sin errores, pruebas automatizadas en verde y documentación actualizada.
@@ -430,15 +430,15 @@ Firmas: ______________________ (EL DESARROLLADOR) · ______________________ (EL 
 | 1 | 19/09/2026 – 02/10/2026 | Análisis, factibilidad y diseño arquitectónico | Etapa 1 completa; Etapa 2 (DER, UML, requerimientos) |
 | 2 | 03/10/2026 – 16/10/2026 | Backend base, módulo compartido y frontend inicial | `schema.sql`, `db.js`, `dominio.js`, `server.js`, `Mapa.jsx` |
 | 3 | 17/10/2026 – 30/10/2026 | Testing integral y despliegue MVP (`v1.0.0`) | Pruebas de caja blanca, caja negra y E2E; Docker y Caddy |
-| 4 | 31/10/2026 – 14/11/2026 | Ingesta automática (`v1.1.0`), UX mapa, UAT y cierre | Worker `ingesta.js` (`node-cron`), animaciones `flyTo`/`fitBounds`, manuales y entrega final |
+| 4 | 31/10/2026 – 21/11/2026 | Ingesta automática (`v1.1.0`), UX mapa, UAT y cierre | Worker `ingesta.js` (`node-cron`), animaciones `flyTo`/`fitBounds`, manuales y entrega final |
 
 ### Cronograma (diagrama de Gantt)
 
-Período real de desarrollo y entrega: **sábado 19 de septiembre de 2026 al sábado 14 de noviembre de 2026** (8 semanas / 56 días corridos).
+Período real de desarrollo y entrega: **sábado 19 de septiembre de 2026 al sábado 21 de noviembre de 2026** (9 semanas / 63 días corridos).
 
 ```mermaid
 gantt
-    title Cronograma Real geoAlerts v1.1.0 (19/09/2026 - 14/11/2026)
+    title Cronograma Real geoAlerts v1.1.0 (19/09/2026 - 21/11/2026)
     dateFormat  YYYY-MM-DD
     axisFormat  %d/%m
     section Etapa 1
@@ -454,16 +454,16 @@ gantt
     Testing (CB, CN, E2E)            :e3d, after e3c, 5d
     Puesta en producción             :e3e, after e3d, 3d
     section Etapa 4
-    UAT y release v1.1.0             :e4a, after e3e, 3d
-    Hito - Release v1.1.0            :milestone, m3, after e4a, 0d
-    Manuales y cierre final          :e4b, after e4a, 3d
+    UAT, ajustes y validación final    :e4a, after e3e, 10d
+    Release v1.1.0, manuales y cierre :e4b, after e4a, 3d
+    Hito - Cierre final              :milestone, m3, after e4b, 0d
 ```
 
-**Descripción del cronograma.** El proyecto inició el **19/09/2026** con la Etapa 1 (7 días) y continuó con el diseño arquitectónico de la Etapa 2 (10 días, hasta el 05/10/2026). La construcción (Etapa 3) se desarrolló entre el 06/10/2026 y el 07/11/2026: backend y dominio compartido (10 días), interfaz cartográfica con animaciones `flyTo`/`fitBounds` (10 días), módulo de ingesta automática con `node-cron` y Open-Meteo (5 días), batería completa de pruebas automatizadas (5 días) y configuración de producción (3 días). Finalmente, entre el 08/11/2026 y el **14/11/2026** (Etapa 4) se ejecutaron las pruebas de aceptación (UAT), el release `v1.1.0`, los manuales operativos y el cierre del proyecto.
+**Descripción del cronograma.** El proyecto inició el **19/09/2026** con la Etapa 1 (7 días) y continuó con el diseño arquitectónico de la Etapa 2 (10 días, hasta el 05/10/2026). La construcción (Etapa 3) se desarrolló entre el 06/10/2026 y el 07/11/2026: backend y dominio compartido (10 días), interfaz cartográfica con animaciones `flyTo`/`fitBounds` (10 días), módulo de ingesta automática con `node-cron` y Open-Meteo (5 días), batería completa de pruebas automatizadas (5 días) y configuración de producción (3 días). La Etapa 4 se extendió del 08/11/2026 al **21/11/2026** para completar UAT, ajustes, release `v1.1.0`, manuales y cierre final.
 
 ### Curva S de avance
 
-La curva S muestra el **avance acumulado** (en horas-hombre) a lo largo de las 8 semanas reales de ejecución (del 19/09/2026 al 14/11/2026).
+La curva S siguiente conserva la **línea base planificada** de esfuerzo para las primeras 8 semanas. El cierre real se extendió una semana, hasta el 21/11/2026; no se inventa una distribución semanal de horas para esa extensión porque no hay un desglose actualizado.
 
 | Semana | Período | Actividad principal | Horas de la semana | Horas acumuladas | Avance planificado | Avance real |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -474,17 +474,17 @@ La curva S muestra el **avance acumulado** (en horas-hombre) a lo largo de las 8
 | 5 | 17/10 – 23/10 | Frontend y mapa interactivo | 44 | 196 | 62,8 % | 62,8 % |
 | 6 | 24/10 – 30/10 | Ingesta automática + Animaciones UX | 44 | 240 | 76,9 % | 76,9 % |
 | 7 | 31/10 – 06/11 | Testing (CB, CN, E2E) + Docker | 40 | 280 | 89,7 % | 89,7 % |
-| 8 | 07/11 – 14/11 | UAT, manuales y release v1.1.0 | 32 | 312 | 100,0 % | 100,0 % |
+| 8 | 07/11 – 14/11 | Cierre según la línea base original | 32 | 312 | 100,0 % | — |
 
 ```mermaid
 xychart-beta
-    title "Curva S - avance acumulado real (19/09/2026 - 14/11/2026)"
+    title "Curva S - línea base planificada (19/09/2026 - 14/11/2026)"
     x-axis "Semana" [1, 2, 3, 4, 5, 6, 7, 8]
     y-axis "Avance (%)" 0 --> 100
     line [10.3, 21.8, 34.6, 48.7, 62.8, 76.9, 89.7, 100]
 ```
 
-**Lectura.** El ritmo de ejecución alcanzó su mayor intensidad entre las semanas 3 y 7 (construcción del backend, frontend, ingesta automática y testing), completando el 100 % de las 312 horas comprometidas el 14/11/2026 sin desvíos respecto al cronograma establecido.
+**Lectura.** La línea base estimaba completar las 312 horas en 8 semanas, con cierre previsto el 14/11/2026. El proyecto terminó el **21/11/2026**, una semana después de la fecha planificada; no se cuenta con un desglose actualizado que permita calcular el avance real semanal de esa extensión.
 
 ### Análisis de riesgos
 

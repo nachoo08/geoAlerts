@@ -1,6 +1,6 @@
 # Etapa 3 — Implementación, Construcción y Testing
 
-> **Proyecto:** geoAlerts · **Versión del documento:** 1.1.0 · **Fecha:** 14/11/2026
+> **Proyecto:** geoAlerts · **Versión del documento:** 1.1.0 · **Fecha:** 21/11/2026
 > **Navegación:** [Índice](../README.md) · [Etapa 1](01-analisis-factibilidad.md) · [Etapa 2](02-diseno-arquitectura.md) · **Etapa 3** · [Etapa 4](04-release-mantenimiento.md)
 
 > **Actualización del checkout (15/11/2026):** estructura y pruebas verificadas contra el código actual. La bandeja de controles está abajo y plegada inicialmente; los detalles de alertas se muestran aparte. Open-Meteo actualiza un banner al iniciar y cada 15 minutos, sin insertar alertas. La versión `v1.1.0` documenta el corte previo; estas mejoras todavía no tienen una etiqueta de release nueva.

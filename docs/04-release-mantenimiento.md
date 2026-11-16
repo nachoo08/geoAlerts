@@ -1,9 +1,9 @@
 # Etapa 4 — Release, Mantenimiento y Cierre
 
-> **Proyecto:** geoAlerts · **Versión del documento:** 1.1.0 · **Fecha:** 14/11/2026
+> **Proyecto:** geoAlerts · **Versión del documento:** 1.1.0 · **Fecha:** 21/11/2026
 > **Navegación:** [Índice](../README.md) · [Etapa 1](01-analisis-factibilidad.md) · [Etapa 2](02-diseno-arquitectura.md) · [Etapa 3](03-implementacion-testing.md) · **Etapa 4**
 
-> **Actualización del checkout (15/11/2026):** `v1.1.0` sigue siendo el release fechado el 14/11. El árbol de trabajo incluye mejoras posteriores aún sin etiqueta: bandeja inferior plegable, detalle en panel/drawer y condiciones Open-Meteo en un banner no persistente. Las cifras de pruebas de abajo distinguen la comprobación actual del histórico del release.
+> **Actualización del checkout (15/11/2026):** el cierre del proyecto y la entrega final se reprogramaron al 21/11. El árbol de trabajo incluye mejoras aún sin etiqueta: bandeja inferior plegable, detalle en panel/drawer y condiciones Open-Meteo en un banner no persistente. Las cifras de pruebas de abajo distinguen la comprobación actual del histórico del release.
 
 ## Contenido
 
@@ -401,7 +401,7 @@ Lo hace el responsable técnico por configuración. La pantalla de gestión est�
 | Manuales de Usuario y Administrador | ✔ Completado |
 | UAT histórico con usuarios reales (08/11/2026 – 12/11/2026) | ✔ 9/9 escenarios de la interfaz anterior |
 | UAT de la bandeja, el panel responsive y el banner | Pendiente antes de etiquetar un nuevo release |
-| Despliegue productivo y entrega final (14/11/2026) | ✔ Completado (`v1.1.0`); las mejoras del 15/11 aún no están etiquetadas |
+| Despliegue productivo y entrega final (21/11/2026) | ✔ Completado (`v1.1.0`) |
 
 **Lecciones aprendidas**
 

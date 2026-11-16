@@ -2,7 +2,7 @@
 
 > **Actualización de implementación (15/11/2026):** este documento se ajustó al comportamiento del código actual. Open-Meteo alimenta un banner de condiciones actuales (inicio y cada 15 min), no crea alertas ni escribe en SQLite. El detalle se abre en un panel lateral, mientras filtros y administración viven en una bandeja inferior plegable; en móvil el detalle se vuelve un drawer inferior.
 
-> **Proyecto:** geoAlerts · **Versión del documento:** 1.1.0 · **Fecha:** 14/11/2026
+> **Proyecto:** geoAlerts · **Versión del documento:** 1.1.0 · **Fecha:** 21/11/2026
 > **Navegación:** [Índice](../README.md) · [Etapa 1](01-analisis-factibilidad.md) · **Etapa 2** · [Etapa 3](03-implementacion-testing.md) · [Etapa 4](04-release-mantenimiento.md)
 
 ## Contenido
